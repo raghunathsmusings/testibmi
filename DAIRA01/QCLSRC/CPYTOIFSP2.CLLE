@@ -1,0 +1,42 @@
+             PGM
+
+             DCLF       FILE(SRCPFMBRS)
+             DCL        VAR(&PATH)   TYPE(*CHAR) LEN(60)
+             DCL        VAR(&TOFILE) TYPE(*CHAR) LEN(60)
+             DCL        VAR(&FROMMBR) TYPE(*CHAR) LEN(60)
+
+            /* Loop through records */
+NEXTRCD:
+             RCVF
+             MONMSG     MSGID(CPF0864) EXEC(GOTO CMDLBL(EOF))
+
+             IF         COND(&MBNAME *NE '          ') THEN(DO)
+
+             /* Create directory in IFS for source pf */
+             CHGVAR     VAR(&PATH) VALUE('/DAIRA01IFS/' *TCAT +
+                          &MBLIB *TCAT '/' *TCAT &MBFILE *TCAT '/')
+             CRTDIR     DIR(&PATH)
+             MONMSG     MSGID(CPF0000)
+
+             /* /QSYS.LIB/MYMBR.MBR/MYSRCFILE.FILE/MYSRCMBR.MBR */
+             CHGVAR     VAR(&FROMMBR) VALUE('/QSYS.LIB/' *TCAT +
+                          &MBLIB *TCAT '.LIB/' *TCAT &MBFILE *TCAT +
+                          '.FILE/' *TCAT &MBNAME *TCAT '.MBR')
+
+             /* Define a destination file in IFS */
+             IF         COND(&MBSEU2 *EQ '          ') THEN(CHGVAR +
+                          VAR(&MBSEU2) VALUE('MBR'))
+             CHGVAR     VAR(&TOFILE) VALUE('/DAIRA01IFS/' *TCAT +
+                          &MBLIB *TCAT '/' *TCAT &MBFILE *TCAT '/' +
+                          *TCAT &MBNAME *TCAT '.' *TCAT &MBSEU2)
+
+             /* Copy members to IFS */
+             CPYTOSTMF  FROMMBR(&FROMMBR) TOSTMF(&TOFILE) +
+                          STMFOPT(*REPLACE) STMFCODPAG(*PCASCII)
+             MONMSG     MSGID(CPF0000)
+             ENDDO
+
+             GOTO       CMDLBL(NEXTRCD)
+EOF:
+
+             ENDPGM

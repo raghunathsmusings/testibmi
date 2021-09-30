@@ -1,0 +1,7 @@
+all: REPLACECHR.rpgle
+
+REPLACECHR.pgm: REPLACECHR.rpgle
+
+#rules
+%.rpgle:
+	system "CRTBNDRPG PGM(DAIRA01/$*) SRCSTMF('/daira01IFS/DAIRA01/QRPGLESRC/$*.rpgle') DBGVIEW(*SOURCE) REPLACE(*YES)"

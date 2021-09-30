@@ -1,0 +1,33 @@
+             PGM
+
+             DCLF       FILE(DSPFDMBR)
+
+             DCL        VAR(&PATH) TYPE(*CHAR) LEN(60)
+
+             /* Loop through records */
+NEXTRCD:
+             RCVF
+             MONMSG     MSGID(CPF0864) EXEC(GOTO CMDLBL(EOF))
+
+             DSPFD      FILE(&MBLIB/&MBFILE) TYPE(*MBR) +
+                          OUTPUT(*OUTFILE) OUTFILE(QTEMP/SRCPFMBRS)
+             OVRDBF     FILE(SRCPFMBRS) SHARE(*YES)
+
+             CALL       PGM(CPYTOIFSP2)
+
+             DLTOVR     FILE(SRCPFMBRS)
+             MONMSG     MSGID(CPF9999)
+
+             GOTO       CMDLBL(NEXTRCD)
+EOF:
+
+             DLTOVR     FILE(SRCPFMBRS)
+             MONMSG     MSGID(CPF9999)
+
+             CLOF       OPNID(SRCPFMBRS)
+             MONMSG     MSGID(CPF9999)
+
+             CLOF       OPNID(DSPFDMBR)
+             MONMSG     MSGID(CPF9999)
+
+             ENDPGM

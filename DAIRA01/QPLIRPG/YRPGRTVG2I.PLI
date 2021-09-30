@@ -1,0 +1,1630 @@
+ YRPGRTVG2I: PROCEDURE($OBJTBL_PTR,SRCCTL_PTR,$GENPAR_PTR,$BLOCK_PTR,
+                                                    $ACTION_PTR);
+ /*T: YGENHLL Generate RPG for RTVOBJ                    */
+ /*Z: CRTPLIPGM GENOPT(*OPTIMIZE) */
+ /*------------------------------------------------------------------*/
+ /*W:‚NOTE: Any reference to @@ACP, ACP, ACPDTA_PTR, ACPFMT_PTR, or €*/
+ /*W:‚anything to do with access path, should be carefully checked  €*/
+ /*W:‚for array implementation.                                     €*/
+ /*------------------------------------------------------------------*/
+ /*H:‚  SYSTEM      :     SYNON/2.                                  €*/
+ /*H:‚  PROGRAMMER  :     PW.                                       €*/
+ /*H:‚  DATE WRITTEN:     01/07/86                                  €*/
+ /*H:‚  (C) 1986  COPYRIGHT 1986 SYNON LIMITED                      €*/
+ /*H:‚  Copyright (c) 2012 CA.                                      €*/
+ /*H:‚                                                              €*/
+ /*H:‚  SYNOPSIS:                                                   €*/
+ /*------------------------------------------------------------------*/
+ /*M:  Modification/Fix Notes.                                       */
+ /*M: 17/09/86 PW "Input not found" processing not generated if user */
+ /*M:             exit has not been used.(ZSYNON2 only ).            */
+ /*M: 17/09/86 PW Generation of fully restriced keys improved.       */
+ /*M:             (ZSYNON2 only ).                                   */
+ /*M: 27/10/86 PW Check for no parameters to function before scanning */
+ /*M:             parameters to build key list.                       */
+ /*M:             Also add ON ERROR SYSTEM;                           */
+ /*M: 30/10/86 PW Add recursive function detection.                   */
+ /*M: 04/11/86 PW  Back patch generation error to calling GENPAR     */
+ /*M: 05/11/86 PW  ALLOCATE/FREE new GENSTG.                         */
+ /*M: 07/11/86 PW  ZF_FUNSTK called too early.                       */
+ /*M: 12.12.86 JPL - Process renamed formats properly                */
+ /*M: 12.01.87 JPL - Process fully restricted rtvs to qualified files*/
+ /*M:                by setgt and readp rather than chain            */
+ /*M: 14.01.87 JPL - Allow for descending keys                       */
+ /*M: 19.01.87 JPL - Declare neither parameters (YRPGNPMG1I)         */
+ /*M: 11.02.87 PW  - Set return code if no record(s) found.          */
+ /*M: 26.02.87 PW  Add POS parameters.                               */
+ /*M: 27.02.87 JPL - Use local variables for RST key lists           */
+ /*M: 10.03.87 JPL - Generate individual KLIST names                 */
+ /*M: 25.03.87 PW  - BE_KLIST PARFUN = 'RST' matched unused MSGPDTs. */
+ /*M:                PARFUN corrected to 'RST,...'.                  */
+ /*M: 30/03/87 PV Change MOVE to MOVEL                               */
+ /*M: 13/04/87 PW  Add resolve/REFRESH FLDENT processing.            */
+ /*M: 05/05/87 PW Implement new GENSTG allocation scheme.            */
+ /*M: 09.05.87 JPL - Cater for re-use of renamed format              */
+ /*M: 08.01.88 JPL - Use alternative subr pfx allocation pgm         */
+ /*M: 19.01.88 JPL - Modify for *PSSR                                */
+ /*M: 25/01/88 PV Change for new msg sender                          */
+ /*M: 27.04.88 PV  - Get indicators from system conditions           */
+ /*M: 05.07.88 JPL - Consider all parms for qualified group checking */
+ /*M: 14.07.88 PV  - Cater for *NEXT qualified relations             */
+ /*M: 10/01/89 PV Recompile for YGENRC000I/Y000I/YKJISHFZCI changes  */
+ /*M: 07.06.89 JB  - RECOMPILED FOR MOD 0041 - DB CHANGES.           */
+ /*M: 18.08.89 KM National language MOD 0042                         */
+ /*M: 29.11.89 MEB Remove dcl of ymsgactl1i                          */
+ /*M: 02.01.90 NCM Recompile after change to YKJISHFZCI              */
+ /*M: 08:01:90 CRS Recompiled for changes to YSRCCTLCPI              */
+ /*M: 09.01.90 PFV Add subroutine prefix error check vs YSBRPFXR1I   */
+ /*M: 26:01:90 PFV Move RTNCDE check to exit program                 */
+ /*M: 27:02:90 SOA M66 Ensure key flds clr before movg dta to them.  */
+ /*M: 27:03:90 MEB In  bb_fully_restricted  do no para test on parptr*/
+ /*M: 05MAR91  GTH - Mod 3100 ACPDTACPI copybook changed             */
+ /*M: 11May91  wcc - implement SQL/DML                               */
+ /*M: 10Jul91 WCC  - Mod 3223 YQDCL01CPI copybook change              */
+ /*M: 23Jul91 WCC  - Mod 3234 Suppress KLIST dcl if SQL. If RPGPFX   */
+ /*M:                is renamed use original for view fields. refer   */
+ /*M:                to yprtobjg1i.  In addition, suppress READ next  */
+ /*M:                stmt when cursor is used.                        */
+ /*M: 30Jul91  EGC - Mod 3250 Allow multiple SQL cursor vnm assignment*/
+ /*M: 09Aug91 RWC - Include calls to YQDSALCR1I which is the allocate */
+ /*M:  M23257       DS name & prefix storage mechanism for SQL.       */
+ /*M:               Ensure that any external file related DS that     */
+ /*M:               is created is logged in the token table.          */
+ /*M: 12Aug91 RWC - Replace dummy parm for SQL_CHAIN with A_RPGPFX    */
+ /*M:  M23257       DS name & prefix storage mechanism for SQL.       */
+ /*M: 19Aug91 RWC - YQDCL04CPI Copybook modified to use OLD_RPGPFX    */
+ /*M:  M23277       for call to YQORDB2R1I. OLD_RPGPFX needs to be    */
+ /*M:               loaded up outside of the rename loop.             */
+ /*M: 09NOV91  EGC - Mod 3515 recompiled for release 3.1             */
+ /*M: 15NOV91  EGC - Mod 3529 recompiled/over ydspdtarfp             */
+ /*M: 05MAR92 CAD Mod 3602 *USRSPC backout, archive from W23547ARCH  */
+ /*M: 06-21Apr92 SJR - Mod 4000. *Arrays implementation.             */
+ /*M: 22Apr92 SJR -  Mod 4000. Recompile due to R4.0                 */
+ /*M: 23Apr92 SJR -  Mod 4000. Use YSGTTBLCPI.                       */
+ /*M: 28Apr92 SJR -  Mod 4000. Fixed bug in message.                 */
+ /*M: 28Apr92  DMA - Mod 4004: Add $action_ptr to parm interface     */
+ /*M:                           (Note: $action_ptr is not used)      */
+ /*M: 29Apr92 SJR -  Mod 4000. Fixed bug in move keys.               */
+ /*M: 30Apr92 SJR -  Mod 4000. Fixed messages.                       */
+ /*M: 06May92 SJR -  Mod 4000. Include yarrseqcpi                    */
+ /*M:                          Generate all field array  structure   */
+ /*M:                          instead of atr field array structure. */
+ /*M:                          Use a_dsidx||arrent.arrkeyseq as      */
+ /*M:                          a field name in the key data structure*/
+ /*M: 07May92 SJR -  Mod 4000. Use arrdta.arrkeyptr for keys.        */
+ /*M: 14MAY92  EGC - Mod 4023: R4.0 Recompile/copybook changes       */
+ /*M: 11Jun92 RWC - DRDA. (Note: All changes are labeled DRDA)        */
+ /*M: 16Jun92 CJJ - MOD4044 UIM Recompile for change to YJOBDTAPDP.  */
+ /*M: 30Jul92 SJR - Mod 4099: Move array key element to key structure*/
+ /*M:                         for non-keyed access                   */
+ /*M: 03-04Aug92 SJR - Mod 4107: Fixed some bugs for arrays.         */
+ /*M: 24Aug92 SJR - Mod 4156: Fixed bug for arrays.                  */
+ /*M: 26Aug92 RWC M4124 R4.0 DRDA Enhancement.                       */
+ /*M:             Insert code for cursor re-open & re-position       */
+ /*M:             when RDB changes between each record read.         */
+ /*M: 28-31Aug92 SJR - Mod 4158: Fixed bug for arrays.               */
+ /*M: 03Sep92  DMA - Mod 4143: Recompile for change to yzrgencmti.   */
+ /*M: 08Sep92 SJR - Mod 4170: Fixed bug for arrays.                  */
+ /*M: 16Sep92 SJR - Mod 4186: Inc#37442. Added parameters to         */
+ /*M:                                    sql_dcl_cursor5.            */
+ /*M: 13OCT92 SJR - Mod 4234: Inc#42314. GOTO EXIT after array elem. */
+ /*M:               not found only if the user point is defined.     */
+ /*M:               Setup YMxx to YIxx of YLxx before lokup and for  */
+ /*M:               non-keyed access.                                */
+ /*M: 05Oct92  JXC - Mod 4159: Pass $block_ptr to YGENPARR1I for     */
+ /*M:                         automatic parameter defaulting         */
+ /*M: 04Dec92  MVR  Mod 4306                                         */
+ /*M:               Modified YQORDB2R1I to include:                  */
+ /*M:               'qualified_by_flag' parameter to identify        */
+ /*M:               'Qualified By' Relations.                        */
+ /*M:                  '0' = Not Qualified By                        */
+ /*M:                  '1' = Qualified By *NEXT                      */
+ /*M:                  '2' = Qualified By *PREV                      */
+ /*M:               Incident #14515                                  */
+ /*M: 03Mar93  FJF - Mod 4433: Recompile for changes to @RELDTA 4.1  */
+ /*M: 29Apr93 FJF - Mod 4483: Change parameter interface to          */
+ /*M:               YARRPFXR1I for COBOL CRTOBJ changes.             */
+ /*M: 23Aug93 SJR - Mod 4665: Inc.#45624. Generate RECORD NOT FOUND  */
+ /*M:               exit point for unkeyed array.                    */
+ /*M: 27Aug93 SJR - Mod 4676: Inc.#49346. Localise 'Y' for an array. */
+ /*M:                       Use a_dsidx2 instead of 'Y' in the loop. */
+ /*M: 22Oct93  MIS - Mod 5014 recompiled for changes to yarrdtacpi   */
+ /*M: 17Nov93  MIS - Mod 5000 recompiled for changes to yobjtblcpi   */
+ /*M: 27DEC93  SJR - R 5.0 Recompile due to Null Model change        */
+ /*M: 07JAN94  DEV - M25043 R 5.0 Recompile due to Null Model        */
+ /*M: 03Feb94  SJR - M25087 R 5.0 Recompile due to Null Model        */
+ /*M: 27MAR94  JSC - M25162 QRY Access Path Enhancements             */
+ /*M:                       Introduce function options               */
+ /*M: 02APR94  MIS - M25188 - Recompile for YOBJTBLCPI               */
+ /*M: 25Apr94  JSC - M25144 - Fix FUNOPT_PTR setting                 */
+ /*M: 17MAY94  JSC - M25253 Change YRPGINPG1I parameters             */
+ /*M: 17Jun94  RWC - M25351 - YGENCMT enablement                     */
+ /*M: 28Jun94  MVR  Mod 5376  (Retro-fit of M24886 on SYNONDV2)      */
+ /*M:               "RPG functions fail to compile when some *Array  */
+ /*M:               RTVOBJ's are used."                              */
+ /*M:               Incident #63762                                  */
+ /*M: 05Jul94  NMG - Mod 5400: Recompile for YOBJTBLCPI chang        */
+ /*M: 10Sep94  MIS - M25531 recompile for YOBJTBLCPI change.         */
+ /*M: 15Sep94  MVR  Mod 5569                                          */
+ /*M:               Use of an alternate collating sequence on a RSQ   */
+ /*M:               Access Path no longer works correctly due to      */
+ /*M:               changes by IBM.                                   */
+ /*M:               IBM now states that for an Access Path that uses  */
+ /*M:               an ALTCOL sequence the use of 'Factor 1' in the   */
+ /*M:               READE statement will no longer work.              */
+ /*M:               Incident #75851                                   */
+ /*M:  3Oct94  MIS - M25640 recompile for YOBJTBLCPI change.         */
+ /*M: 12Dec94 OPK M25783 Clone messages used for both AD and generated*/
+ /*M:             source comments: Y2F0xxx in Y2USRACT (original-P1),*/
+ /*M:             Y2D0xxx in Y2ALCMSG (clone-P2).                    */
+ /*M: 08Feb95  NMG - M25852 Fix for #65858 input restricted parms    */
+ /*M:                passed as individual keys only generated the    */
+ /*M:                first key.  This has been fixed.                */
+ /*M: 28Feb95  MVR  Mod 5879                                         */
+ /*M:               "EDTFIL gets compiler error QRG7030 (indicator   */
+ /*M:               is not defined) when a CRTOBJ is replaced with   */
+ /*M:               an EXCINTFUN calling a DLTOBJ."                  */
+ /*M:               Incident #82390                                  */
+ /*M: 08Mar95  MVR  Mod 5890                                         */
+ /*M:               "When using a RTVOBJ function built over a RSQ   */
+ /*M:               ACP factor 1 is no longer generated before a     */
+ /*M:               READE statement when the ACP used a translation  */
+ /*M:               table such as QSYSTRNTBL."                       */
+ /*M:               Mod 5569 modifications have been backed out.     */
+ /*M:               It appears that the original folder #75851 was   */
+ /*M:               due to an IBM bug.                               */
+ /*M:               Incident #79649                                  */
+ /*M: 12Jul95 OpK M26061 (# 85259,86540) The original fix made in    */
+ /*M:                    M26061 was removed and re-applied in M26010. */
+ /*M: 17Aug95 OpK M26010 (# 85259,86540) For ACP based functions only:*/
+ /*M:                    Build full key list explicitly when the ACP  */
+ /*M:                    has at least one key of DT#, TM# or TS# types*/
+ /*M:                    and no parameters are defined. When the list */
+ /*M:                    has built, initialize it correctly depending */
+ /*M:                    on both field and collating types (Asc/Dsc). */
+ /*M: 29Aug95  RWC - M26053 Arrays Code Restructure.                  */
+ /*M:                Refer to document "Review of Synon/2E Arrays"    */
+ /*M:                Version 2.00 for details of restructured code.   */
+ /*M: 18Sep95  RWC - M26053 Change ENDs to ENDIFs and ENDDOs.         */
+ /*M: 26Sep95  BEE - M26133 Add copybooks to support System API calls*/
+ /*M:          due to removed defns from the objtblcpi copybook.     */
+ /*M: 03Oct95  BEE - Retrofit to M26053.                             */
+ /*M: 31Oct95  BEE M26185 Initialize field: a_rpgpfx as it is a      */
+ /*M:          varying length field and must be inz'ed before use.   */
+ /*M: 15Nov95  RWC - M26210 Implement SQL naming.                    */
+ /*M: 28Dec95  RWC - M26210 Support Direct Table access              */
+ /*M: 09Feb96 OpK M26300 {# 46806} Minor change:Tidy up some comments.*/
+ /*M: 11Feb96 OpK M26300 {# 46806} Build the key list explicitly if   */
+ /*M:                    there are no function parameters defined.   */
+ /*M: 12Feb96 OpK M26210 Retrofit of M26300.                          */
+ /*M: 14Mar96 RWC M26344 #92455 - RPG array with numeric keys and RST */
+ /*M:             with key value GT or equal to last elm causes       */
+ /*M:             decimal data error.                                 */
+ /*M: 27Mar96 RWC M26338 #92588 - M26344 fix caused an empty array    */
+ /*M:             to not setoff in90 and does not execute the "Record */
+ /*M:             does not exist" user point.                         */
+ /*M: 08Apr96 OpK M26342 {# 92564} Do not build key list explicitly   */
+ /*M:                     when all keys can be initialized by single  */
+ /*M:                     figurative constant either *LOVAL or *HIVAL.*/
+ /*M:                     Recover old procedure BJ_CHECK_KEY_TYPES and*/
+ /*M:                     introduce new one BK_CHECK_ACP.             */
+ /*M: 12Apr96 OpK M26210 Retrofit the M26342 fix.                     */
+ /*M: 10May96 OpK M26210 {# 92309} Recompile due to YGENRX000I change.*/
+ /*M: 09May96 OpK M26365 {# 92950} Improve the procedures introduced  */
+ /*M:                    in mod M26342 to consider QRY virtual entries*/
+ /*M:                    (entity type 'W') as ACP keys in addition to */
+ /*M:                    regular ones (entity type 'K').              */
+ /*M: 10May96 OpK M26365 Retrofit the M26365 fix.                     */
+ /*M: 16Aug96  JCH  M26408 ITS94397 - SQL long names. Recompile due  */
+ /*M:               to YSQLDCLCPI changes. Direct table access and   */
+ /*M:               file is assimilated generate DDS name.           */
+ /*M: 02Sep96  BEE - M26339 Recompile for changes to msgact logicals */
+ /*M:          and various copybooks to support changes to action    */
+ /*M:          diagram editor for R6.0.                              */
+ /*M: 04Oct96 BEE M26311 - Use subroutine local variables to         */
+ /*M: #92104  externalise the interface and share subroutine.        */
+ /*M: 12Nov96 BEE M26527 - Force non-share of subroutine if function */
+ /*M: #92104  is only referenced once.                               */
+ /*M: 15Nov96 BEE M26492 - Recompile for changes to msgact and msgdta*/
+ /*M: #93221      to support sbmjob feature for r6.                  */
+ /*M: 11Nov96  RXS Mod 6537 Recompile for SFLEND function option     */
+ /*M:M* 02Dec96 BEE M26570 Recompiled due to change to null model. */
+ /*M: 09Dec96 BEE M26575 Recompile for changed copybook. */
+ /*M: 18DEC96 OPK M26580 {# 97201} Recompile due to YGENRX000I change*/
+ /*M: 13Jan97 JCH M26600 #90136 - Promotion of Rename. R6.0           */
+ /*M:         Adjust call to YEXPREFR1I for new parameters.           */
+ /*M: 31Jan97 BEE M26608 Recompile for changed copybook sbrlclcpi. */
+ /*M: #97886                                                       */
+ /*M: 04Mar97  MVR  Mod 6661  (Retro-fit of MOD M26652)              */
+ /*M:               "A RTVOBJ that uses an access path (SQL View)    */
+ /*M:               with Dynamic Omit does not omit any records      */
+ /*M:               (all records are available)."                    */
+ /*M:               Incident #95421                                  */
+ /*M: 31Mar97  MVR  Mod 6710  (Retro-fit of MOD M26692)              */
+ /*M:               Re-compile due to YOBJTBLCPI modifications.      */
+ /*M:               Incident #98441                                  */
+ /*M:  22Apr97 OPK M26723 {# 99186} Recompile due to YARRDTACPI change*/
+ /*M: 04Jun97 KED M26750 #99279 - Shared subroutines.  R6.0           */
+ /*M:         Adjust call to YEXPREFR1I for new parameter $COUNT.     */
+ /*M: 03Sept97 SAA M26863 {#99805} Recompile due to YARRDTACPI change*/
+ /*M:  13Nov97 OPK M26885 # 02900 Recompile due to YARRDTACPI change. */
+ /*M: 12Jan98 BEE M27028 Change CTXLST from 80 to 132. This change   */
+ /*M:                    involved a change to msgactrfp, ELMTTL.     */
+ /*M: -------------------- RELEASE 7.0 ------------------------------*/
+ /*M: 14Feb99 RMH M27229 Batch Processing Enhancements.              */
+ /*M: 23Feb00 RMH M27280 Use '1', if no *RRN parm on PHY RTVOBJ.     */
+ /*M: 03Apr00 RMH M27301 Automatically return *RRN if used as O/B.   */
+ /*M: 19May00 RMH M27304 Set file RRN to '1' if RRN parameter deleted*/
+ /*M: 06May00 RMH M27324 10147444 Correct M27304.                    */
+ /*M:--------------------Spyder Release-------------------------------*/
+ /*M: 16Apr01 SBC M27396 - Contact Issue #9690915                     */
+ /*M:                    Recompile due to change in YARRDTACPI.       */
+ /*M: M27420 - SBC 08/13/01 - Issue 9690915 - Recompile for completeness*/
+ /*M: 18Oct03 MVR M27549 12982065                                    */
+ /*M:                    C22E 128  RUE @ 1386 in YACTCTXR4I          */
+ /*M:                    RPGIV field length > 9999                   */
+ /*M:                    Recompile due to copybook modifications:    */
+ /*M:                    YGENDS0001I, YGENDS001I                     */
+ /*M: 25Feb05 COCSI01 M27677 - PR89 - Dev Issue 14014908:            */
+ /*M:                 Recompile for changed copybook YOBJTBLCPI.     */
+ /*M: 06Jun2005 M27708 COCSI01 - 14082986                            */
+ /*M:           Recompile due to change in YSPCMGTCPI in M27705.     */
+ /*M: 01May07 RONMA02 M27920 C22E Problem 281                        */
+ /*M:                 SQL cursor is left OPEN after a *QUIT has      */
+ /*M:                 been specified within the Action Diagram of    */
+ /*M:                 an RPG RTVOBJ function.                        */
+ /*M:                 Modifications have been made to ensure that    */
+ /*M:                 the SQL cursor is always CLOSED upon exiting   */
+ /*M:                 an RPG RTVOBJ function.                        */
+ /*M: 19May08 COCSI01 M27988 17009615 IMPACT ANALYSIS(EXCL COMMENTS) */
+ /*‚          1. Add $CMTCDE argument to YEXPREFR1I.                €*/
+ /*‚          2. Recompile for change to YSHRSBRCPI.                €*/
+ /*M: 28MAY09 COCSI01 M28112 - 18105401 V6R1 USRSPC MCH5401.          */
+ /*M:         Recompile for change to YSPCMGTCPI.                     */
+ /*M: 03Jul12 UPANI03 M28516 C22E 458                                */
+ /*M:                 Changed the message id from Y2V9999 to Y2V8053 */
+ /*M:                 for RP4 programs due to increase in the number */
+ /*M:                 of subroutine limit from 260 to 360.           */
+ /*M: 20Jan14 UPANI03 M28694 C22E 526                                 */
+ /*M:                 Recompile due to change in the copy book        */
+ /*M:                 YSQLDCLCPI as part of the                       */
+ /*M:                 story B-33157 (2E SQL enhancements              */
+ /*M:                 bundle - Meaningful names for SQL/DDL)          */
+ /*M: 16Jul14 UPANI03 M28750 B-54985  2E SQL enhancements bundle -   */
+ /*M:                 Control Table vs Fields, meaningful            */
+ /*M:                 names for SQL.                                 */
+ /*M:                 Recompile due to change in the copy book       */
+ /*M:                 YSQLDCLCPI.                                    */
+ /*------------------------------------------------------------------*/
+ DCL     @PGMID       CHAR(10) STATIC INIT('YRPGRTVG2I');
+ /*-------------------------------------------------------------------*/
+ /* Entry parameters.*/
+ dcl $action_ptr ptr;   /*‚not used €*/
+ DCL $BLOCK_PTR PTR;  /*‚Pointer to block containing action€*/
+    ACTION_PTR = $BLOCK_PTR -> BLOCK.ACTIONPTR;  /*‚Point at action€*/
+ DCL      $OBJTBL_PTR PTR;
+ %INCLUDE QPLICPY (YOBJTBLCPI); /*‚Object table definitions and proce€*/
+    OBJTBL_PTR = $OBJTBL_PTR;
+ %INCLUDE QPLICPY (YSRCCTLCPI); /*‚SRCSEQ redefinitions.             €*/
+ DCL      $GENPAR_PTR PTR;
+ %INCLUDE QPLICPY (YGENPARCPI); /*‚Generator parameters              €*/
+ %INCLUDE QPLICPY (YMSGACTCPI); /*‚Action diagram                    €*/
+ /*-------------------------------------------------------------------*/
+ %INCLUDE QPLICPY (YGENSTGCPI); /*‚GENSTG: Generator allocation stora€*/
+ %INCLUDE QPLICPY (YMSGPARCPI); /*‚Message parameter block           €*/
+ %INCLUDE QPLICPY (YMSGPDTCPI); /*‚Message parameter block entry     €*/
+ %INCLUDE QPLICPY (YSBRLCLCPI); /*‚Process subroutine local parameter€*/
+ %INCLUDE QPLICPY (YSHRSBRCPI); /*‚Scan action diagram to count refs €*/
+ %INCLUDE QPLICPY (YDEPLSTCPI); /*‚Object Dependencies List definitio€*/
+ %INCLUDE QPLICPY (YSPCMGTCPI); /*‚USRSPC Storage management.        €*/
+ %INCLUDE QPLICPY (YCNDSTBZKI); /*‚Determine if condition stub is to €*/
+ /*-------------------------------------------------------------------*/
+ %INCLUDE QPLICPY (YACPDTACPI); /*‚Access path data.                 €*/
+ %INCLUDE QPLICPY (YACPFMTCPI); /*‚Access path formats.              €*/
+ %INCLUDE QPLICPY (YACPRELCPI); /*‚Access path format relations      €*/
+ %INCLUDE QPLICPY (YACPENTCPI); /*‚Access path entries.              €*/
+ /*-------------------------------------------------------------------*/
+ %INCLUDE QPLICPY (YRELENTCPI); /*‚Relations table definition.       €*/
+ %INCLUDE QPLICPY (YFILENTCPI); /*‚File table entries                €*/
+ %INCLUDE QPLICPY (YFLDENTCPI); /*‚Field table entries               €*/
+ %INCLUDE QPLICPY (YENTENTCPI); /*‚Entries table single entry.       €*/
+ %INCLUDE QPLICPY (YFUNOPTCPI); /*‚Function generation options       €*/
+ /*------------------------------------------------------------------*/
+ %include qplicpy (yarrdtacpi); /*‚Array data procedures             €*/
+ %include qplicpy (yarrseqcpi); /*‚Array data - R. 4.0 - sequence thr€*/
+ /*------------------------------------------------------------------*/
+ %INCLUDE QPLICPY (YSGTTBLCPI); /*‚Hard coded object surrogate table €*/
+ /*------------------------------------------------------------------*/
+ %INCLUDE QPLICPY (YAPIDCLCPI); /*‚API: Declarations.                €*/
+ %INCLUDE QPLICPY (YCVTDECCPI); /*‚Convert *DEC->*BIN or *BIN->*DEC. €*/
+ %INCLUDE QPLICPY (YERRCDECPI); /*‚API: Error code data structure.   €*/
+ %INCLUDE QPLICPY (YOBJDTACPI); /*‚API: Get Object data.             €*/
+ %INCLUDE QPLICPY (INDICATORS); /*‚Device file indicators            €*/
+ %INCLUDE QPLICPY (YSNDMSGZMI); /*‚Send program message procedure.   €*/
+ %INCLUDE QPLICPY (YRTVMSGRMI); /*‚Retrieve message text.            €*/
+ %INCLUDE QPLICPY (YGETRRNCPI); /*‚YGENHLL RPG Get/Create RRN field n€*/
+ /*------------------------------------------------------------------*/
+ DCL YRTVATRR1I ENTRY(CHAR(6),PTR,PTR) RETURNS(CHAR(8));
+ DCL YRTVVALR1I ENTRY(CHAR(7),CHAR(80));
+ DCL STORAGE BUILTIN;
+ /*------------------------------------------------------------------*/
+ /*‚YGENSRC file.€*/
+ DCL     YGENSRCRFP FILE RECORD OUTPUT ENV(CONSECUTIVE DESCRIBED);
+ DCL   1 @GENSRC,                      /* Generated source record.*/
+         %INCLUDE YGENSRCRFP (@GENSRC,RECORD);
+ /*------------------------------------------------------------------*/
+ /* Object details file.*/
+ DCL     YOBJDTA03L  FILE RECORD INPUT DIRECT KEYED
+                                                 ENV(INDEXED DESCRIBED);
+ DCL   1 @MSGDTA,
+         %INCLUDE YOBJDTA03L(@MSGDTA,RECORD);
+ DCL   1 @MSGDTA_KEY,
+         %INCLUDE YOBJDTA03L(@MSGDTA,KEY);
+ DCL     YOBJDTA03L_RTNCDE CHAR(1);
+         ON     KEY(YOBJDTA03L) YOBJDTA03L_RTNCDE = 'N';
+         ON ENDFILE(YOBJDTA03L) YOBJDTA03L_RTNCDE = 'N';
+ /*-------------------------------------------------------------------*/
+ /*‚Message prototype.€*/
+ DCL     YPROTYP00L  FILE RECORD INPUT SEQL KEYED
+                                                 ENV(INDEXED DESCRIBED);
+ DCL   1 @MSGDTA_P,
+         %INCLUDE YPROTYP00L(@MSGDTA_P,RECORD);
+ DCL   1 @MSGDTA_P_KEY,
+         %INCLUDE YPROTYP00L(@MSGDTA_P,KEY);
+ DCL     YPROTYP00L_RTNCDE CHAR;
+         ON ENDFILE(YPROTYP00L) YPROTYP00L_RTNCDE = 'N';
+         ON     KEY(YPROTYP00L) YPROTYP00L_RTNCDE = 'N';
+ /*-------------------------------------------------------------------*/
+ DCL  NULL BUILTIN;
+ DCL YEXPACPR1I ENTRY (DEC(7)) RETURNS(PTR);
+ DCL YEXPREFR1I ENTRY (DEC(7),CHAR(4),CHAR(4),CHAR(4),DEC(7),DEC(7),
+                       DEC(3),CHAR(7),CHAR(3),CHAR(9),CHAR(9),CHAR(8),
+                       CHAR(4), CHAR(4)) RETURNS(PTR);
+ DCL YPARDTAR1I ENTRY (DEC(7),DEC(7),CHAR,CHAR) RETURNS(PTR);
+ DCL YACTCTXR1I ENTRY (PTR) RETURNS(PTR);
+ DCL YCHKTKNR1I ENTRY (PTR,CHAR(3),CHAR(10),CHAR(10) VARYING)
+                                             RETURNS(BIT);
+ DCL YRTVMSGR1I ENTRY (DEC(7),CHAR(25),char(10)) RETURNS(CHAR(7));
+ DCL YRPGINPG1I ENTRY (ptr,PTR,PTR,char(6)) RETURNS(CHAR(2));
+ DCL YGENPARR1I ENTRY (CHAR,PTR,PTR,PTR,PTR,PTR,PTR,CHAR(2))
+                      RETURNS(PTR);
+ DCL YRPGERRG1I ENTRY (CHAR(7),CHAR(132),PTR,PTR);
+ DCL YRPGNPMG1I ENTRY (PTR,PTR,PTR);
+ DCL YSBRLCLR1I ENTRY (PTR,PTR);
+ DCL YSBRPFXR1I ENTRY (PTR,PTR,CHAR(*)) RETURNS(CHAR(2));
+ DCL YRTVINDR1I ENTRY (DEC(7)) RETURNS(CHAR(48) VARYING);
+ DCL YACTCTXR4I ENTRY (PTR, PTR, PTR, CHAR, PTR, CHAR, CHAR(2) VARYING)
+                RETURNS (CHAR(10));           /*‚Date/Time/Timestamp€*/
+
+    /*‚This line added for SQL€*/
+
+ dcl yqordb2r1i entry (ptr,ptr,char(2),char(1),dec(1));
+ dcl yqwhrllr1i entry (ptr,ptr,char(2),ptr,dec(1),char(1),char(2));
+ dcl yqselomr1i entry (ptr,ptr,char(3),ptr,char(1));
+ dcl yalcvnmr2i entry (ptr,char(3),char(10)) returns(char(10));
+ DCL YQDSALCR1I ENTRY (PTR,CHAR(10),CHAR(6),CHAR(2),CHAR(2));
+
+                                                              /*‚DRDA€*/
+ dcl ydrdarcg7i entry (ptr,ptr,ptr);
+ /*------------------------------------------------------------------*/
+ DCL a00_genpar ptr external init(null) static; /*‚first $GENPAR_PTR€*/
+ /*------------------------------------------------------------------*/
+ DCL   JOBDTA_PTR PTR EXTERNAL;
+ DCL   1 JOBDTA BASED(JOBDTA_PTR),   /* Job details.*/
+    %INCLUDE YJOBDTAPTP(@JOBDTA,RECORD);
+ /*------------------------------------------------------------------*/
+
+ dcl a_array bit aligned; /*‚Function built over array?€*/
+     a_array = '0'b;
+ dcl a_@@arr dec(7);
+     a_@@arr = 0;
+ dcl a_comment char(15);
+ dcl a_maxelem_9 pic 'ZZZ9'; /* Maximum # of elements - for conversion*/
+ dcl a_maxelem_a char(4); /* Maximum # of elements - for conversion*/
+ dcl movel char(5) static init('MOVEL');
+ dcl z_add char(5) static init('Z-ADD');
+ dcl lokup char(5) static init('LOKUP');
+ dcl blanks char(7) static init('*BLANKS');
+ dcl zeros char(6) static init('*ZEROS');
+ dcl a_funopt_ptr ptr; /*‚Function options for the RTVOBJ itself€*/
+ dcl a_fld_qual bit aligned;
+ %page;
+ /*===================================================================*/
+ /*‚PROLOGUE.                                                        €*/
+ /*===================================================================*/
+
+    /*‚Retreive message details€*/
+    @MSGDTA_KEY.@@MSG = ACTION.@@REFMSG;
+    YOBJDTA03L_RTNCDE = 'Y';
+    READ FILE(YOBJDTA03L) INTO(@MSGDTA) KEY(@MSGDTA_KEY)
+     OPTIONS(RECORD('@MSGDTA'));
+    IF   (YOBJDTA03L_RTNCDE = 'N')
+    THEN RETURN;
+
+    /*‚Retreive message prototype details€*/
+    @MSGDTA_P_KEY.@@MSG_P = @MSGDTA.@@MSG_P;
+    YPROTYP00L_RTNCDE = 'Y';
+    READ FILE(YPROTYP00L) INTO(@MSGDTA_P) KEY(@MSGDTA_P_KEY)
+     OPTIONS(RECORD('@MSGDTA_P'));
+    IF   (YPROTYP00L_RTNCDE = 'N')
+    THEN RETURN;
+
+    /*‚Add function to recursive function call detector.€*/
+    IF (ZF_FUNSTK (ACTION.@@REFMSG)) THEN GOTO EXIT_PROGRAM;
+
+ DCL A_GENSTG_NXT DEC(7),A_GENSTG_PTR PTR;
+    A_GENSTG_PTR = GENSTG_PTR;
+    A_GENSTG_NXT = GENSTG_NXT; /*‚Store current GENSTG context€*/
+    GENPAR_PTR = YGENPARR1I ('N',ADDR(@MSGDTA),ADDR(@MSGDTA_P),
+                  ACTION_PTR,$GENPAR_PTR,$BLOCK_PTR,
+                  SRCCTL_PTR,'??');
+
+    /*‚FUNOPT_PTR points to function options of calling function€*/
+    /*‚A_FUNOPT_PTR points to function options of this RTVOBJ€*/
+    FUNOPT_PTR   = ADDR($GENPAR_PTR -> GENPAR.TYPOPT);
+    A_FUNOPT_PTR = ADDR(GENPAR.TYPOPT);
+
+    /*‚Establish which file we are dealing with€*/
+    FILENT_PTR = OBJTBL_DTA(@MSGDTA.@@FIL);
+    a_array = (@msgdta.@@fil = @@_fil_arrays); /*This is *Arrays*/
+
+  if (¬a_array) then do;
+    ACPDTA_PTR = GENPAR.MSTPTR;
+    ACPFMT_PTR = ACPDTA.FMTPTR;
+  end;
+  else do;
+    arrdta_ptr = genpar.mstptr;
+    a_@@arr = arrdta.@@arr;
+    a_maxelem_9 = arrdta.maxelem;
+    a_maxelem_a = char(a_maxelem_9);
+  end;
+
+ /*===================================================================*/
+ /*‚MAINLINE.                                                        €*/
+ /*===================================================================*/
+
+ /*‚Indicators - retrieved from conditions€*/
+ DCL (I_RCDEXS,
+      i_lokup,
+      I_RCDLCK) CHAR(2);
+    I_RCDEXS = YRTVINDR1I (1001792);  /*‚Record does not exist€*/
+    I_RCDLCK = YRTVINDR1I (1001794);  /*‚Record locked€*/
+    i_lokup = YRTVINDR1I (1001792);  /*‚Lokup indicator for arrays€*/
+ dcl a_rsltind char(6);  /*‚all three result indicators€*/
+ DCL A_SAVE_SRCSEC CHAR(10);
+ /*‚NB: A_RPGPFX CHAR(10) VRY to comply with YCHKTKNR1I call€*/
+ DCL A_RPGPFX CHAR(10) VARYING;
+     A_RPGPFX = ' ';   /*‚Inz.€*/
+ DCL B BIT ALIGNED;
+ DCL A_@@ACP PIC '9999999', A_@@ACPX CHAR(7);
+ dcl x_cursor_name  char(16);
+ dcl @_dcl_cursor  char(1);
+ DCL A_RPGOPR CHAR(5);
+ DCL A0_@@RTVOBJX CHAR(7),A0_SBR CHAR(10) VARYING,A0_GENNED BIT ALIGNED;
+ DCL A0_SV_SRCSEC CHAR(10), A0_PIC7 PIC '9999999',A0_SHRSBR CHAR(4);
+ DCL A0_SBRPFX CHAR(2);
+
+ if (¬a_array) then do;
+ /*‚This copybook declares the sql naming and direct table access€*/
+ /*‚model values and retrieves them€*/
+ %include qplicpy (ysqldclcpi); /*‚SQL: YQNAMNGR1I, DBFACC, SQLVNM et€*/
+ end;/*‚¬a_array€*/
+
+ /*‚This copybook declares the array work variables and also declares€*/
+ /*‚and calls YARRDTAG1I & YARRPFXG1I€*/
+ %include qplicpy (yarrdclcpi); /*‚RPG: Arrays - Variable dcl & pfx p€*/
+
+     /*‚SQL  Jul2491€*/
+
+ dcl  a_q1_rpgpfx    char(2);
+ dcl  old_rpgpfx    char(2);
+
+    @_dcl_cursor='N';
+    A_SAVE_SRCSEC = SRCCTL.SRCSEC;
+
+    /*‚Log use of input file€*/
+    A_RPGPFX = '';
+
+ if (¬a_array) then do;
+     /*‚SQL  Jul2491€*/
+    old_rpgpfx=acpfmt.rpgpfx;
+
+    /*‚Retrieve rpgpfx if file has been used before€*/
+    IF   ¬(YCHKTKNR1I(SRCCTL_PTR,'FIL',ACPDTA.SRCMBR,A_RPGPFX))
+    THEN DO;
+       /*‚And patch it back onto acpfmt.rpgpfx€*/
+       IF   (A_RPGPFX ¬= '')
+       THEN ACPFMT.RPGPFX = A_RPGPFX;
+    END;
+    ELSE DO;
+       /*‚If format prefix not unique within program ?€*/
+       /*‚Generate RPG I specs to rename every field in the record.€*/
+       A_RPGPFX = YRPGINPG1I (genpar_ptr,SRCCTL_PTR,ACPDTA_PTR,' ');
+       /*‚Update token table with used prefix€*/
+       B = YCHKTKNR1I(SRCCTL_PTR,'FIL',ACPDTA.SRCMBR,A_RPGPFX);
+       /*‚Log input access path (no infds)€*/
+       A_@@ACP = ACPDTA.@@ACP;  A_@@ACPX = A_@@ACP;
+       B = YCHKTKNR1I(SRCCTL_PTR,'INP',A_@@ACPX,'');
+    END;
+   end; /*‚end if NOT array€*/
+ /*-------------------------------------------------------------------*/
+ /* Generate call to RPG subroutine.*/
+    A0_GENNED = '0'B;   /*‚Has subroutine been generated?€*/
+    /*‚Determine if sharing subroutines.€*/
+    IF (YA_COUNT_@@MSG(GENPAR.@@MSG) <= 1) THEN
+       A0_SHRSBR = '*NO';  /*‚Force no sharing, else consult mdlval.€*/
+    ELSE A0_SHRSBR = YRTVATRR1I('SHRSBR', NULL, GENPAR_PTR);
+    /*‚Check if sharing subroutines, for action.€*/
+    IF ( A0_SHRSBR = '*NO' ) THEN DO;
+       A0_SBRPFX = A_GEN_SBRPFX();
+       A0_SBR    = ( A0_SBRPFX||'RVGN' );
+    END;
+    ELSE DO;
+       /*‚Convert parameters to subroutine local variables.€*/
+       /*‚NB Must remap them on each invocation.           €*/
+       CALL YSBRLCLR1I(GENPAR_PTR,SRCCTL_PTR);
+       A0_PIC7      = GENPAR.@@MSG;
+       A0_@@RTVOBJX = A0_PIC7;
+       A0_SBR       = '';
+       A0_GENNED    = '1'B;
+       IF (YCHKTKNR1I(SRCCTL_PTR,'SBR',A0_@@RTVOBJX,A0_SBR)) THEN DO;
+          A0_GENNED    = '0'B;   /*‚It's new, not genned yet.€*/
+          A0_SBRPFX = A_GEN_SBRPFX();
+          A0_SBR    = ( A0_SBRPFX||'RVGN' );
+          /*‚Add the subroutine name into token table.€*/
+          IF (YCHKTKNR1I(SRCCTL_PTR,'SBR',A0_@@RTVOBJX,A0_SBR)) THEN;
+          /*‚Generate definitions of local parameters.€*/
+          A0_SV_SRCSEC  = SRCCTL.SRCSEC;
+          SRCCTL.SRCSEC = '09ZZD';
+          CALL SL_SEQTHRU_MSGPDT('*DEFINE',A0_SBR);
+          SRCCTL.SRCSEC = A0_SV_SRCSEC;
+       END;
+    END;
+    CALL ZR_GENCMT('Y2F9017', ACTION.ELMTTL);  /*‚&1€*/
+    /*‚Check for generate moves to local parameters.€*/
+    IF ( A0_SHRSBR = '*YES' ) THEN
+       CALL SL_SEQTHRU_MSGPDT('*INPUT',A0_SBR);
+    CALL RX('C                     EXSR '||A0_SBR);
+    /*‚Check for generate moves from local parameters.€*/
+    IF ( A0_SHRSBR = '*YES' ) THEN
+       CALL SL_SEQTHRU_MSGPDT('*OUTPUT',A0_SBR);
+    IF ( ¬A0_GENNED ) THEN DO;
+       /*‚Generate subroutine and accumulate error indicators€*/
+       CALL RB_BEGSR(A0_SBR,'Y2F9017',ACTION.ELMTTL);
+       CALL YRPGNPMG1I (OBJTBL_PTR,SRCCTL_PTR,GENPAR_PTR);
+       CALL B_GEN_SUBR(A0_SBRPFX);
+       if (¬a_array
+         &  srcctl.sql
+         &  @_dcl_cursor = 'Y')
+       then do;
+          srcctl.srcsec = '08'||substr(a0_sbrpfx,1,2);
+          call rc('',a0_sbrpfx||'EXIT','TAG','','','','','');
+          call rc('',a0_sbrpfx||'SQLX','IFEQ','''Y''','','','','');
+          call sql_close(x_cursor_name);
+          call rc('','','MOVEL','*BLANK',a0_sbrpfx||'SQLX','','','');
+          call rc('','','ENDIF','','','','','');
+          call ra_line('=');
+          call rx('CSR                   ENDSR ');
+       end;
+       else
+          CALL RE_ENDSR(A0_SBRPFX);
+    END;
+ /*-------------------------------------------------------------------*/
+    SRCCTL.SRCSEC = A_SAVE_SRCSEC;
+ /*-------------------------------------------------------------------*/
+    /*‚Rmv function from recursive function call detector.€*/
+    IF (ZF_FUNSTK (0)) THEN;
+ /*-------------------------------------------------------------------*/
+ EXIT_PROGRAM:
+    /*‚Back patch generation error to calling GENPAR€*/
+    IF (GENPAR.RTNCDE = 'ERR')
+    THEN $GENPAR_PTR->GENPAR.RTNCDE = 'ERR';
+ /*-------------------------------------------------------------------*/
+    GENSTG_PTR = A_GENSTG_PTR;
+    GENSTG_NXT = A_GENSTG_NXT; /*‚Restore previous GENSTG context€*/
+    RETURN;
+ %page;
+ A_GEN_SBRPFX: PROCEDURE RETURNS(CHAR(2));
+ /*===================================================================*/
+ /*‚Generate a new subroutine prefix.                                €*/
+ /*===================================================================*/
+ DCL A_PREFIX CHAR(2);
+    A_PREFIX = YSBRPFXR1I(GENPAR_PTR,SRCCTL_PTR,'ST');
+    /*‚Error if could not find an unused subroutine prefix€*/
+    IF (A_PREFIX = '**') THEN DO;
+    /*‚Could not find an unused subroutine prefix€*/
+       IF(SRCCTL.OBJATR = 'RP4' | SRCCTL.OBJATR = 'SR4') THEN
+          CALL X_ERR ('Y2V8053','');
+       ELSE
+          CALL X_ERR ('Y2V9999','');
+    END;
+    RETURN(A_PREFIX);
+ /*===================================================================*/
+ END A_GEN_SBRPFX;
+ %page;
+ B_GEN_SUBR: PROCEDURE (B_PFX);
+ /*===================================================================*/
+ /*‚Generate subroutine body.                                        €*/
+ /*===================================================================*/
+ DCL B_PFX CHAR(2);
+ DCL B_MSGNME CHAR(25),B_MSGID CHAR(7),B_MSGF CHAR(10);
+ DCL B_@@MSG DEC(7);
+ DCL (B_PTR1,B_PTR2) PTR, B_QTDMSGID CHAR(9);
+ DCL (B_FULLY_RESTRICTED,B_QUALIFIED_BY,B_QUALIFIED_NEXT) BIT ALIGNED;
+ DCL B_KEYED_ACCESS BIT ALIGNED, (B_KRST,B_KPOS) CHAR(6);
+ DCL B_DESCENDING BIT ALIGNED;
+ DCL B_KLIST_REQUIRED BIT ALIGNED;
+ DCL (B_RST_PRESENT,B_POS_PRESENT,B_PHY_ACP) BIT ALIGNED;
+ dcl b_resultfld char(6);
+ dcl b_phy_rrn char(6); /*‚File *RRN name e.g. Y01RRN.€*/
+ dcl b_par_rrn char(10);
+ dcl b_rrn_out bit aligned;
+    b_rrn_out = '0'b;
+
+  if (¬a_array) then do;
+    IF (ACPDTA.ACPTYP = '010') THEN DO;
+       B_PHY_ACP = '1'B;
+       B_PHY_RRN = GET_PHY_RRN(ACPDTA.SRCMBR);
+       B_RST_PRESENT = '0'B;
+       B_POS_PRESENT = '0'B;
+       B_KLIST_REQUIRED = '0'B;
+    END;
+    ELSE DO;
+       B_PHY_ACP = '0'B;
+       B_RST_PRESENT      = BA_LOCATE_PARFUN('RST');
+       B_POS_PRESENT      = BA_LOCATE_PARFUN('POS');
+
+       IF (¬B_RST_PRESENT & ¬ B_POS_PRESENT) THEN DO;
+       /*‚Build full key list if no parametrs defined when at     €*/
+       /*‚least one of the following conditions meets:            €*/
+       /*‚1) the ACP has field(s) of DT#/TM#/TS# types            €*/
+            B_KLIST_REQUIRED  = BJ_CHECK_KEY_TYPES('DT#,TM#,TS#');
+       /*‚2) the ACP keys have different collating sequence types €*/
+            B_KLIST_REQUIRED  = B_KLIST_REQUIRED | BK_CHECK_ACP();
+       END;
+       ELSE B_KLIST_REQUIRED   = '0'B;
+    END;
+
+    B_KEYED_ACCESS     = (B_RST_PRESENT | B_POS_PRESENT
+                                        | B_KLIST_REQUIRED);
+    B_FULLY_RESTRICTED = BB_FULLY_RESTRICTED();
+    B_QUALIFIED_BY     = BC_QUALIFIED();
+    IF (B_QUALIFIED_BY)
+    THEN DO;
+       IF (RELENT.@@SHR = -3) /*‚Qualified by *NEXT€*/
+       THEN B_QUALIFIED_NEXT = '1'B;
+       ELSE B_QUALIFIED_NEXT = '0'B; /*‚Qualified by *PREVIOUS€*/
+    END;
+  end; /*‚if NOT array€*/
+  else do;
+    B_RST_PRESENT      = IA_LOCATE_PARFUN('RST');
+    B_POS_PRESENT      = IA_LOCATE_PARFUN('POS');
+    B_KEYED_ACCESS     = (B_RST_PRESENT | B_POS_PRESENT);
+    B_FULLY_RESTRICTED = IB_FULLY_RESTRICTED();
+  end; /*‚array€*/
+
+    CALL RC('','','MOVEL','*BLANK','W0RTN','  7','','');
+    /*‚USER INITIALISATION€*/
+    CALL RU_USER_EXIT (0000047,NULL);
+
+  if (¬a_array) then do;
+ /*-------------------------------------------------------------------*/
+                                                              /*‚DRDA€*/
+ /*‚Set YRRDB and call Establish connection routine€*/
+ if srcctl.dstfio ¬= ' ' then
+                call ydrdarcg7i ($genpar_ptr,srcctl_ptr,acpdta_ptr);
+ /*-------------------------------------------------------------------*/
+    IF (B_KEYED_ACCESS) THEN DO;
+       IF ((B_RST_PRESENT) & (¬B_FULLY_RESTRICTED))
+       THEN CALL BD_DEFN_RST (B_PFX);
+       IF (B_POS_PRESENT | B_KLIST_REQUIRED) THEN DO;
+          B_KPOS = 'KPS' || B_PFX;
+          CALL BE_KLIST(B_KPOS,'RST,POS',B_PFX,'Y2F7648'); /*Define*/
+       END;
+       IF (B_RST_PRESENT) THEN DO;
+          B_KRST = 'KRS' || B_PFX;
+          CALL BE_KLIST(B_KRST,'RST,...',B_PFX,'Y2F7648'); /*Define*/
+       END;
+       IF (B_KLIST_REQUIRED) THEN DO;
+          B_KPOS = 'KPS' || B_PFX;
+          CALL BE_KLIST(B_KPOS,'...',B_PFX,'Y2F7656');     /*Init*/
+       END;
+       CALL BF_LOAD_KEYS (B_PFX);
+    END;
+    ELSE DO;
+       B_DESCENDING = BG_DESCENDING();
+    END;
+
+    call zr_gencmt('Y2F7604','');  /*‚Establish starting position€*/
+
+    IF (B_KEYED_ACCESS) THEN DO;
+       IF   (B_FULLY_RESTRICTED) THEN DO;
+          IF   (B_QUALIFIED_BY) THEN DO;
+            if ( srcctl.sql ) then
+            do;
+              call rc('','','MOVEL','''Y''',a0_sbrpfx||'SQLX',
+                                                   '  1','','');
+              x_cursor_name = sql_dcl_cursor5(acpdta.srcmbr,sqltblviw,
+                              b_qualified_by, b_qualified_next);
+              call sql_fetch(acpdta.srcmbr,x_cursor_name);
+              call sql_io_test1;
+              @_dcl_cursor='Y';
+            end;
+            else
+            do;
+              IF   (B_QUALIFIED_NEXT) THEN DO;
+                 CALL RC('',B_KRST,'SETLL',ACPFMT.FMTVNM,
+                         '','','','*');
+                 CALL RC('','','READ',ACPFMT.FMTVNM,
+                         '','','  '||I_RCDLCK||I_RCDEXS,'*');
+              END;
+              ELSE DO;       /*‚qualified by *PRV€*/
+                  CALL RC('',B_KRST,'SETGT',ACPFMT.FMTVNM,
+                          '','','  '||I_RCDLCK,'*');
+                  CALL RC('','','READP',ACPFMT.FMTVNM,
+                          '','','  '||I_RCDLCK||I_RCDEXS,'*');
+              END;
+            end;
+            CALL BH_CHECK_GROUP;
+          END;
+          else      /*‚not B_QUALIFIED_BY€*/
+            if ( srcctl.sql ) then
+            do;
+               if (acpdta.alwselomt = 'D')    /*‚Dynamic select/omit€*/
+               then do;                    /*‚need to Declare Cursor€*/
+                  call rc('','','MOVEL','''Y''',a0_sbrpfx||'SQLX',
+                                                       '  1','','');
+                  x_cursor_name = sql_dcl_cursor5(acpdta.srcmbr,
+                                                  sqltblviw,'0'b,'0'b);
+                  call sql_fetch(acpdta.srcmbr,x_cursor_name);
+                  call sql_io_test2;
+                  @_dcl_cursor='Y';
+               end;
+               else do;
+                  call sql_chain(acpdta.srcmbr,sqltblviw,
+                                           A_RPGPFX,old_rpgpfx,' ');
+                  call sql_io_test2;
+               end;
+            end;
+            else
+               CALL RC('',B_KRST,'CHAIN',ACPFMT.FMTVNM,
+                       '','',I_RCDEXS,'*');
+       END;
+       ELSE DO;     /*‚not B_FULLY_RESTRICTED€*/
+         if ( srcctl.sql ) then
+         do;
+           call rc('','','MOVEL','''Y''',a0_sbrpfx||'SQLX',
+                                                '  1','','');
+           x_cursor_name = sql_dcl_cursor5(acpdta.srcmbr,sqltblviw,
+                                                            '0'b,'0'b);
+           call sql_fetch(acpdta.srcmbr,x_cursor_name);
+           call sql_io_test2;
+           @_dcl_cursor='Y';
+
+         end;
+         else
+         do;
+            IF (B_POS_PRESENT | B_KLIST_REQUIRED)
+            THEN CALL RC('',B_KPOS,'SETLL',ACPFMT.FMTVNM,'','','','*');
+            ELSE CALL RC('',B_KRST,'SETLL',ACPFMT.FMTVNM,'','','','*');
+            IF (B_RST_PRESENT)
+            THEN CALL RC('',B_KRST,'READE',ACPFMT.FMTVNM,
+                         '','','    '||I_RCDEXS,'*');
+            ELSE CALL RC('','','READ',ACPFMT.FMTVNM,
+                         '','','    '||I_RCDEXS,'*');
+         end;
+       END;
+    END;
+    ELSE DO;        /*‚not B_KEYED_ACCESS€*/
+      if ( srcctl.sql ) then
+      do;
+        call rc('','','MOVEL','''Y''',a0_sbrpfx||'SQLX',
+                                             '  1','','');
+        a_q1_rpgpfx=acpfmt.rpgpfx;
+        acpfmt.rpgpfx=old_rpgpfx;
+        x_cursor_name = sql_dcl_cursor4(acpdta.srcmbr,sqltblviw);
+        acpfmt.rpgpfx=a_q1_rpgpfx;
+        call sql_fetch(acpdta.srcmbr,x_cursor_name);
+        call sql_io_test2;
+        @_dcl_cursor='Y';
+
+      end;
+      else do;
+        IF (B_PHY_ACP) THEN DO;
+           /*‚Check if *RRN processing required.€*/
+           IF (GENPAR.PARPTR ¬= NULL) THEN DO;
+            IF (GENPAR.PARPTR->MSGPAR.FSTPDT->MSGPDT.@@FLD = 725)
+            THEN DO;
+               /*‚Get *RRN parameter field name.€*/
+               B_PAR_RRN = GENPAR.PARPTR->MSGPAR.FSTPDT->MSGPDT.DDSVNM;
+               SELECT(GENPAR.PARPTR->MSGPAR.FSTPDT->MSGPDT.PARUSG);
+                  WHEN('I') DO;
+                     B_RRN_OUT = '0'B;
+                     CALL RC('','',Z_ADD,B_PAR_RRN,B_PHY_RRN,'','','');
+                  END;
+                  WHEN('B') DO;
+                     B_RRN_OUT = '1'B;
+                     CALL RC('','',Z_ADD,B_PAR_RRN,B_PHY_RRN,'','','');
+                  END;
+                  WHEN('O') DO;
+                     B_RRN_OUT = '1'B;
+                     CALL RC('','',Z_ADD,'1',B_PHY_RRN,'','','');
+                  END;
+                  WHEN('N') DO;
+                     B_RRN_OUT = '0'B;
+                     CALL RC('','',Z_ADD,B_PAR_RRN,B_PHY_RRN,'','','');
+                  END;
+                  OTHERWISE STOP;
+               END;
+            END;
+            ELSE DO; /*‚Parameters passed, but not RRN, so set to 1.€*/
+               B_RRN_OUT = '0'B;
+               CALL RC('','',Z_ADD,'1',B_PHY_RRN,'','','');
+            END;
+           END;
+           ELSE DO; /*‚No parameters passed, so set RRN to 1.€*/
+              B_RRN_OUT = '0'B;
+              CALL RC('','',Z_ADD,'1',B_PHY_RRN,'','','');
+           END;
+
+           /*‚If reading file, do a SETLL/READ, otherwise CHAIN€*/
+           IF (¬B_FULLY_RESTRICTED) THEN DO;
+              CALL RC('',B_PHY_RRN,'SETLL',ACPFMT.FMTVNM,'','','','*');
+              CALL RC('','','READ',ACPFMT.FMTVNM,'','','    90','*');
+           END;
+           ELSE DO;
+              CALL RC('',B_PHY_RRN,'CHAIN',ACPFMT.FMTVNM,
+                                                 '','',I_RCDEXS,'*');
+           END;
+        END;
+        ELSE DO;
+           IF   (B_DESCENDING) THEN
+            CALL RC('','*HIVAL','SETLL',ACPFMT.FMTVNM,'','','','*');
+           ELSE
+            CALL RC('','*LOVAL','SETLL',ACPFMT.FMTVNM,'','','','*');
+           CALL RC('','','READ',ACPFMT.FMTVNM,'','','    90','*');
+        END;
+      end; /*‚not SQL€*/
+    END; /*‚not keyed access€*/
+
+    /*‚Record not found processing€*/
+    B_@@MSG = FILENT.@@NOTFND;
+    B_MSGID = YRTVMSGR1I(B_@@MSG,B_MSGNME,B_MSGF);
+    IF (B_MSGID = ' ') THEN B_MSGID = 'Y2U0005';
+    B_QTDMSGID = '''' || B_MSGID || '''';
+    B_PTR1 = RL_LOCATE_EXIT (0000051);
+    IF (B_PTR1 ¬= NULL) THEN DO;
+       CALL RX('C           *IN'||I_RCDEXS||'     IFEQ ''1''');
+       CALL ZR_GENCMT('Y2D0114','');  /*‚DBF Record not found.€*/
+       CALL RC('','','MOVEL',B_QTDMSGID,'W0RTN','  7','','');
+       /*‚USER NULL INPUT PROCESSING€*/
+       CALL RU_USER_EXIT (0000051,B_PTR1); /*‚Record not found.€*/
+       CALL RC('','','GOTO',A0_SBRPFX||'EXIT','','','','');
+       CALL RX('C                     ENDIF');
+       CALL ZR_GENCMT('Y2F6054','');  /*‚          €*/
+    END;
+    ELSE DO;
+       CALL ZR_GENCMT('Y2D0114','');  /*‚DBF Record not found.€*/
+       CALL RC(' '||I_RCDEXS,'','MOVEL',B_QTDMSGID,'W0RTN','  7','','');
+    END;
+
+    B_PTR2 = RL_LOCATE_EXIT (0000040);
+    IF (B_PTR2 ¬= NULL) THEN DO;
+       IF   (B_FULLY_RESTRICTED)
+       THEN DO;
+          CALL RX('C           *IN'||I_RCDEXS||'     IFEQ ''0''');
+          /*‚USER RECORD PROCESSING€*/
+          CALL RU_USER_EXIT (0000040,B_PTR2);
+          CALL RX('C                     ENDIF');
+       END;
+       ELSE DO;
+          CALL RX('C           *IN'||I_RCDEXS||'     DOWEQ''0''');
+          /*‚USER RECORD PROCESSING€*/
+          CALL RU_USER_EXIT (0000040,B_PTR2);
+          if ( srcctl.sql ) then
+          do;
+ /*-------------------------------------------------------------------*/
+                                                              /*‚DRDA€*/
+ /*‚Set YRRDB and call Establish connection routine€*/
+ if srcctl.dstfio ¬= ' ' then
+                call ydrdarcg7i ($genpar_ptr,srcctl_ptr,acpdta_ptr);
+ /*-------------------------------------------------------------------*/
+            call sql_fetch(acpdta.srcmbr,x_cursor_name);
+ /*-------------------------------------------------------------------*/
+                                                              /*‚DRDA€*/
+ /*‚Next record read, cursor re-open, re-position protection         €*/
+ if ((srcctl.dstfio ¬= ' ') & (ACPDTA.UNQKEY = 'Y')) THEN do;
+      call drda_fetch(acpdta.srcmbr,x_cursor_name);
+ end;
+ /*-------------------------------------------------------------------*/
+            call sql_io_test2;
+          end;
+          else
+           IF (B_RST_PRESENT)
+            THEN CALL RC('',B_KRST,'READE',ACPFMT.FMTVNM,
+                        '','','    '||I_RCDEXS,'*');
+            ELSE CALL RC('','','READ',ACPFMT.FMTVNM,
+                        '','','    '||I_RCDEXS,'*');
+          CALL RX('C                     ENDDO');
+       END;
+    END;
+    /*‚USER EXIT PROCESSING€*/
+    CALL RU_USER_EXIT (0000060,NULL);
+
+    IF (B_RRN_OUT) THEN DO;
+       CALL ZR_GENCMT('Y2F8908',''); /*‚Return relative record number€*/
+       CALL RC('','',Z_ADD,B_PHY_RRN,B_PAR_RRN,'','','');
+    END;
+
+ /*‚if ( srcctl.sql & @_dcl_cursor='Y') then€*/
+ /*‚    call sql_close(x_cursor_name)       €*/
+  end; /*‚if NOT array€*/
+  else do;
+   if (b_keyed_access) then do;
+
+     call rc('',a_lstidx,'IFGT','0','','','','');
+
+     call zr_gencmt('Y2F8063','');      /*‚Set up start index€*/
+     call rc('','','Z-ADD','1','Y','  50','','');
+     call rc('','',movel,a_arrnam||',Y',a_key_dsnam,'','','');
+     call rc('',a_dsidx,'OCUR',a_all_dsnam,'','','','');
+
+     /*‚Setup KLIST from input (or neither) parmsr.€*/
+     CALL ZR_GENCMT('Y2F8052','');  /*‚Initialise internal index€*/
+     if (arrdta.arrseq = 'A') then do;           /*‚Ascending array€*/
+       call rc('','',movel,'*LOVAL',a_key_dsnam,'','','');
+        a_rsltind = i_lokup || '    ';
+        a_comment = m_rtvmsg('Y2F8064','>');
+     end;
+     else do;
+       call rc('','',movel,'*HIVAL',a_key_dsnam,'','','');
+        a_rsltind = '  ' || i_lokup || '  ';
+        a_comment = m_rtvmsg('Y2F8064','<');
+     end;
+     call f_seqthru_msgpdt('K','M','IBN');
+
+     call zr_gencmt('Y2F8243',''); /*‚Only search if ...€*/
+      /*‚Ensure that key is not beyond range of those in array€*/
+     if (arrdta.arrseq = 'A') then do;              /*‚Ascending€*/
+         call rc('',a_arrnam||','||a_lstidx,'IFGT ',
+                                               a_key_dsnam,'','','','');
+
+     end;
+     else do;                                       /*‚Descending€*/
+         call rc('',a_arrnam||','||a_lstidx,'IFLT ',
+                                               a_key_dsnam,'','','','');
+     end;
+
+     /*‚LOKUP€*/
+     call rc('',a_key_dsnam,lokup,zv(a_arrnam)||',Y','','',
+               a_rsltind,a_comment);
+
+     call rc('','','ELSE','','','','','');
+     call rc('','','SETOF','','','',i_lokup,'');
+     call rc('','','ENDIF','','','','','');
+     call rc('','','ELSE','','','','','');
+     call rc('','','SETOF','','','',i_lokup,'');
+     call rc('','','ENDIF','','','','','');
+
+    if (b_rst_present) then do;
+     call rc('','*IN'||i_lokup,'IFEQ','''1''','','','','');
+     call zr_gencmt('Y2F8120',''); /* Move to DS for compare..*/
+     call rc('','',movel,a_arrnam||',Y',a_key_dsnam,'','','');
+     /*‚Compare€*/
+     call zr_gencmt('Y2F8070',''); /*‚Compare€*/
+     /*‚Generate IFNE/ORNE  group€*/
+     a_rpgopr = 'IFNE';
+     call f_seqthru_msgpdt('R','C','IB');
+     call rc('','','SETOF','','','',i_lokup,'');
+     call rc('','','ENDIF','','','','','');
+     call rc('','','ENDIF','','','','','');
+    end; /*‚restrictor present€*/
+     call rc('','*IN'||i_lokup,'IFEQ','''0''','','','','');
+   end; /*‚keyed access€*/
+   else do;
+     call rc('','','Z-ADD','1','Y','  50','','');
+     call rc('',a_lstidx,'IFGT','0','','','','');
+     call rc('','',movel,a_arrnam||',Y',a_key_dsnam,'','','');
+     call rc('',a_dsidx,'OCUR',a_all_dsnam,'','','','');
+     CALL RX('C                     ELSE');
+   end; /*‚non-keyed access€*/
+
+   CALL ZR_GENCMT('Y2F8128','');  /*‚Array element not found€*/
+   B_@@MSG = 1001645;
+   B_MSGID = YRTVMSGR1I(B_@@MSG,B_MSGNME,B_MSGF);
+   B_QTDMSGID = '''' || B_MSGID || '''';
+   CALL RC('','','MOVEL',B_QTDMSGID,'W0RTN','  7','','');
+   B_PTR1 = RL_LOCATE_EXIT (0000051);
+   IF (B_PTR1 ¬= NULL) THEN DO;
+     CALL RU_USER_EXIT (0000051,B_PTR1); /*‚Record not found.€*/
+     CALL RC('','','GOTO',A0_SBRPFX||'EXIT','','','','');
+   END;
+   CALL RX('C                     ENDIF');
+   CALL ZR_GENCMT('Y2F6054','');  /*‚          €*/
+
+   B_PTR2 = RL_LOCATE_EXIT (0000040);
+   IF  (B_PTR2 ¬= NULL) THEN DO;
+     if (b_keyed_access) then
+       call rc('','*IN'||i_lokup,'IFEQ','''1''','','','','');
+     if (¬b_fully_restricted) then do;
+       call zr_gencmt('Y2F8129',''); /*‚Seqthru qualified elements€*/
+       CALL RC('','','Z-ADD','Y',a_wrkidx,'  50','','');
+       call rc('',a_wrkidx,'DOWLE',a_lstidx,'','','','');/*Loop*/
+       if (b_rst_present) then do;
+         a_rpgopr = 'ANDEQ';
+         call f_seqthru_msgpdt('R','C','IB');     /*‚Check RST€*/
+       end; /*‚restrictor present€*/
+       else
+        if (¬b_keyed_access)|(¬b_rst_present) then do;
+          CALL RC('','','Z-ADD',a_wrkidx,'Y','','','');
+          call rc('','',movel,a_arrnam||',Y',a_key_dsnam,'','','');
+        end;
+     end; /*‚NOT fully restricted€*/
+     call rc('',a_dsidx,'OCUR',a_all_dsnam,'','','','');
+     CALL RU_USER_EXIT (0000040,B_PTR2); /*‚User record processing€*/
+     if (¬b_fully_restricted) then do;
+       call rc('','','ADD','1',a_wrkidx,'','','');
+       if (b_rst_present) then do;
+         call rc('',a_wrkidx,'IFLE',zt(a_maxelem_a),'','','','');
+         CALL RC('','','Z-ADD',a_wrkidx,'Y','','','');
+         call rc('','',movel,a_arrnam||',Y',a_key_dsnam,'','','');
+         call rc('','','ENDIF','','','','','');
+       end; /*‚restrictor present€*/
+       call rc('','','ENDDO','','','','','');
+     end; /*‚NOT fully restricted€*/
+     if (b_keyed_access) THEN CALL RX('C                     ENDIF');
+   end; /*‚USER RECORD PROCESSING DEFINED€*/
+
+   /*‚USER EXIT PROCESSING€*/
+   CALL RU_USER_EXIT (0000060,NULL);
+
+  end; /*‚if array€*/
+
+ %PAGE;
+ BA_LOCATE_PARFUN: PROCEDURE (BA_PARFUN) RETURNS(BIT);
+ /*===================================================================*/
+ /*===================================================================*/
+ DCL BA_PARFUN CHAR(3);
+    /*‚If no parameters then no keys list required.€*/
+    IF (GENPAR.PARPTR = NULL) THEN RETURN('0'B);
+    DO      ACPENT_PTR = ACPFMT.KEYPTR
+    REPEAT               ACPENT.NXT
+    WHILE  (ACPENT_PTR ¬= NULL);
+ BA010:DO     MSGPAR_PTR = GENPAR.PARPTR
+       REPEAT              MSGPAR.NXT
+       WHILE (MSGPAR_PTR ¬= NULL);
+          DO     MSGPDT_PTR = MSGPAR.FSTPDT
+          REPEAT              MSGPDT.NXT
+          WHILE  (MSGPDT_PTR ¬= NULL);
+             IF (ACPENT.@@FLD ¬= MSGPDT.@@FLD) THEN ITERATE;
+             /*‚If neither restrictor nor positioner then continue€*/
+             IF (INDEX('RST,POS',MSGPDT.PARFUN) > 0)
+             THEN LEAVE BA010;
+          END;
+       END;
+       /*‚If not found then stop€*/
+       IF (MSGPDT_PTR = NULL) THEN LEAVE;
+       /*‚If positioner and we need restrictors then stop€*/
+       IF ( (MSGPDT.PARFUN = 'POS')
+          & (BA_PARFUN = 'RST') )
+       THEN LEAVE;
+       /*‚If required type then return 'Found'€*/
+       IF  (MSGPDT.PARFUN = BA_PARFUN) THEN RETURN('1'B);
+    END;
+    RETURN('0'B);
+ END BA_LOCATE_PARFUN;
+ %PAGE;
+ BB_FULLY_RESTRICTED: PROCEDURE RETURNS(BIT);
+ /*===================================================================*/
+ /*===================================================================*/
+    /*‚If no parameters then no keys list required.€*/
+    IF (GENPAR.PARPTR = NULL) THEN RETURN('0'B);
+    /*‚Non-unique keys still require read loop€*/
+    IF (¬B_PHY_ACP & ACPDTA.UNQKEY ¬= 'Y') THEN RETURN('0'B);
+
+    /*‚For RTVOBJ built over a PHY access path, check if *RRN is    €*/
+    /*‚passed as a 'RST' parameter - if so, ACP is fully restricted.€*/
+    IF (B_PHY_ACP) THEN DO;
+       IF (GENPAR.PARPTR->MSGPAR.FSTPDT->MSGPDT.@@FLD = 725 &
+           GENPAR.PARPTR->MSGPAR.FSTPDT->MSGPDT.PARFUN = 'RST') THEN
+        RETURN('1'B);
+       ELSE
+        RETURN('0'B);
+    END;
+
+    DO      ACPENT_PTR = ACPFMT.KEYPTR
+    REPEAT               ACPENT.NXT
+    WHILE  (ACPENT_PTR ¬= NULL);
+ BB010:DO     MSGPAR_PTR = GENPAR.PARPTR
+       REPEAT              MSGPAR.NXT
+       WHILE (MSGPAR_PTR ¬= NULL);
+          DO     MSGPDT_PTR = MSGPAR.FSTPDT
+          REPEAT              MSGPDT.NXT
+          WHILE  (MSGPDT_PTR ¬= NULL);
+             IF (ACPENT.@@FLD ¬= MSGPDT.@@FLD) THEN ITERATE;
+             IF  (MSGPDT.PARFUN = 'RST')
+             THEN LEAVE BB010;
+          END;
+       END;
+       /*‚No parameter defined for key€*/
+       IF  (MSGPDT_PTR = NULL) THEN RETURN('0'B);
+    END;
+    RETURN('1'B); /*‚Fully restricted€*/
+ END BB_FULLY_RESTRICTED;
+ %PAGE;
+ BC_QUALIFIED: PROCEDURE RETURNS(BIT);
+ /*===================================================================*/
+ /*===================================================================*/
+    IF (¬B_FULLY_RESTRICTED) THEN RETURN('0'B);
+    IF   (GENPAR.MSTPTR -> ACPDTA.ACPTYP = '030')  /*‚RTV€*/
+    THEN DO;
+       RELENT_PTR = FILENT.LSTREL(2);
+       IF   (RELENT_PTR ¬= NULL) THEN DO;
+          IF   (RELENT.RELCDE = '070')
+          THEN RETURN('1'B); /*‚Qualified€*/
+       END;
+    END;
+    RETURN('0'B);  /*‚Not qualified€*/
+ END BC_QUALIFIED;
+ %PAGE;
+ BD_DEFN_RST: PROCEDURE (BD_PFX);
+ /*===================================================================*/
+ /*===================================================================*/
+ DCL BD_PFX CHAR(2);
+ DCL (BD_FLD1, BD_FLD2) CHAR(6);
+ DCL BD_KEYNBR PIC '99', BD_KEYNBRX CHAR(2);
+    IF (GENPAR.PARPTR = NULL) THEN RETURN;  /*‚!!!€*/
+    CALL ZR_GENCMT('Y2F7647','');  /*‚Declare restrictor key work fie€*/
+    DO      ACPENT_PTR = ACPFMT.KEYPTR
+    REPEAT               ACPENT.NXT
+    WHILE  (ACPENT_PTR ¬= NULL);
+       IF (ACPENT.KEYNBR > 99) THEN LEAVE;
+ BD010:DO     MSGPAR_PTR = GENPAR.PARPTR
+       REPEAT              MSGPAR.NXT
+       WHILE (MSGPAR_PTR ¬= NULL);
+          /* Assume only high order fields have been specified.*/
+          DO     MSGPDT_PTR = MSGPAR.FSTPDT
+          REPEAT              MSGPDT.NXT
+          WHILE  (MSGPDT_PTR ¬= NULL);
+             IF (MSGPDT.@@FLD ¬= ACPENT.@@FLD) THEN ITERATE;
+             IF (MSGPDT.PARFUN ¬= 'RST') THEN ITERATE;
+             ELSE LEAVE BD010;
+          END;
+       END;
+       /*‚Stop if not found€*/
+       IF (MSGPDT_PTR = NULL) THEN LEAVE;
+       FLDENT_PTR = ZH_FLDPTR(ACPENT.@@FLD);
+       /*‚Construct name of DBF field and local copy€*/
+       BD_FLD1 = ACPFMT.RPGPFX || FLDENT.INTDDSVNM;
+       BD_KEYNBR = ACPENT.KEYNBR;
+       BD_KEYNBRX = BD_KEYNBR;
+       BD_FLD2 = 'WQ' || BD_PFX || BD_KEYNBRX;
+       CALL RC('','*LIKE','DEFN',BD_FLD1,BD_FLD2,'','',FLDENT.FLD);
+    END;
+ END BD_DEFN_RST;
+ BE_KLIST: PROCEDURE (BE_KLIST,BE_PARFUN,BE_PFX,BE_ACTION);
+ /*===================================================================*/
+ /*Define or initialize key list depending on the requested action.   */
+ /*===================================================================*/
+ DCL BE_ACTION CHAR(7);/*Action:Define(Y2F7648) or initialize(Y2F7656)*/
+ DCL BE_OPR CHAR(5),BE_NULL CHAR(10);
+ DCL BE_KLIST CHAR(6), BE_PARFUN CHAR(7), BE_PFX CHAR(2);
+ DCL (BE_FLD1, BE_FLD2) CHAR(6), BE_RPGOPR CHAR(5);
+ DCL BE_KEYNBR PIC '99', BE_KEYNBRX CHAR(2);
+    IF (SRCCTL.SQL) THEN RETURN;
+    IF (GENPAR.PARPTR = NULL) THEN MSGPDT_PTR = NULL;  /*‚!!!€*/
+    CALL ZR_GENCMT(BE_ACTION,'');
+    IF (BE_ACTION = 'Y2F7648') THEN /*‚Define Key List€*/
+        CALL RC('',BE_KLIST,'KLIST','','','','','');
+
+    DO      ACPENT_PTR = ACPFMT.KEYPTR
+    REPEAT               ACPENT.NXT
+    WHILE  (ACPENT_PTR ¬= NULL);
+       IF (ACPENT.KEYNBR > 99) THEN LEAVE;
+ BE010:DO     MSGPAR_PTR = GENPAR.PARPTR
+       REPEAT              MSGPAR.NXT
+       WHILE (MSGPAR_PTR ¬= NULL);
+          DO     MSGPDT_PTR = MSGPAR.FSTPDT
+          REPEAT              MSGPDT.NXT
+          WHILE  (MSGPDT_PTR ¬= NULL);
+             IF (MSGPDT.@@FLD ¬= ACPENT.@@FLD) THEN ITERATE;
+             /*‚Stop if not contiguous RST (or RST,POS)€*/
+             IF  (INDEX(BE_PARFUN,MSGPDT.PARFUN) > 0)
+             THEN LEAVE BE010;
+          END;
+       END;
+
+       FLDENT_PTR = ZH_FLDPTR(ACPENT.@@FLD);
+       /*a)Create Key List entry if the field is used as a parameter. */
+       IF (MSGPDT_PTR ¬= NULL) THEN
+       IF   ( (MSGPDT.PARFUN = 'RST')
+            & (B_RST_PRESENT)
+            & (¬B_FULLY_RESTRICTED) )
+       THEN DO;
+          /*‚Reconstruct local name€*/
+          BE_KEYNBR = ACPENT.KEYNBR;
+          BE_KEYNBRX = BE_KEYNBR;
+          BE_FLD1 = 'WQ' || BE_PFX || BE_KEYNBRX;
+       END;
+       ELSE BE_FLD1 = ACPFMT.RPGPFX || FLDENT.INTDDSVNM;
+       /*b)Create Key List entry if the field must be initialized.    */
+ /*... Don't check entity type at all, because the link list processed*/
+ /*... here already contains ONLY KEY entries.                        */
+ /*... ELSE IF (B_KLIST_REQUIRED & (ACPENT.ENTTYP = 'K')) THEN        */
+       ELSE IF (B_KLIST_REQUIRED) THEN
+               BE_FLD1 = ACPFMT.RPGPFX || FLDENT.INTDDSVNM;
+            ELSE ITERATE;
+      IF (BE_ACTION = 'Y2F7648') THEN DO;      /*‚Define€*/
+         BE_OPR  = 'KFLD';
+         BE_NULL = '';
+      END;
+      ELSE CALL BEA_INIT_KEY(ACPENT.ASCDSC,BE_OPR,BE_NULL);
+      CALL RC('','',BE_OPR,BE_NULL,BE_FLD1,'','',FLDENT.FLD);
+    END;
+
+ %PAGE;
+ BEA_INIT_KEY: PROCEDURE(BEA_ASCDSC,BEA_OPR,BEA_NULL);
+ /*===================================================================*/
+ /*‚Define both value and assignment operation type to initialize the€*/
+ /*‚key pointed to by FLDENT_PTR.                                    €*/
+ /*===================================================================*/
+ DCL BEA_OPR CHAR(5), BEA_NULL CHAR(10), BEA_ASCDSC CHAR(1);
+    BEA_OPR  = 'MOVEL';
+    IF (BEA_ASCDSC = 'D')
+    THEN SELECT(FLDENT.REFATR);   /*‚Descending order€*/
+               WHEN('DT#','TM#','TS#') BEA_NULL = YACTCTXR4I(NULL,
+                                  FLDENT_PTR,NULL,'Y',SRCCTL_PTR,'','');
+               OTHERWISE BEA_NULL = '*HIVAL';
+         END; /*‚select ...€*/
+    ELSE SELECT(FLDENT.REFATR); /*‚Ascending order€*/
+               WHEN('DT#','TM#','TS#') BEA_NULL = YACTCTXR4I(NULL,
+                                  FLDENT_PTR,NULL,'X',SRCCTL_PTR,'','');
+               OTHERWISE BEA_NULL = '*LOVAL';
+         END; /*‚select ...€*/
+ END BEA_INIT_KEY;
+ END BE_KLIST;
+
+ %PAGE;
+ BF_LOAD_KEYS: PROCEDURE (BF_PFX);
+ /*===================================================================*/
+ /*===================================================================*/
+ DCL BF_PFX CHAR(2);
+ DCL (BF_FLD1, BF_FLD2) CHAR(6), BF_RPGOPR CHAR(5);
+ DCL BF_KEYNBR PIC '99', BF_KEYNBRX CHAR(2);
+   IF (GENPAR.PARPTR = NULL) THEN RETURN;  /*‚!!!€*/
+   CALL ZR_GENCMT('Y2F7550','');  /*‚Setup key.€*/
+    DO      ACPENT_PTR = ACPFMT.KEYPTR
+    REPEAT               ACPENT.NXT
+    WHILE  (ACPENT_PTR ¬= NULL);
+       IF (ACPENT.KEYNBR > 99) THEN LEAVE;
+ BF010:DO     MSGPAR_PTR = GENPAR.PARPTR
+       REPEAT              MSGPAR.NXT
+       WHILE (MSGPAR_PTR ¬= NULL);
+          DO     MSGPDT_PTR = MSGPAR.FSTPDT
+          REPEAT              MSGPDT.NXT
+          WHILE  (MSGPDT_PTR ¬= NULL);
+             IF (MSGPDT.@@FLD ¬= ACPENT.@@FLD) THEN ITERATE;
+             IF (INDEX('RST,POS',MSGPDT.PARFUN) > 0)
+             THEN LEAVE BF010;
+          END;
+       END;
+       IF (MSGPDT_PTR = NULL) THEN LEAVE;
+       FLDENT_PTR = ZH_FLDPTR(MSGPDT.@@FLD);
+       IF   (FLDENT.INTDTATYP = 'A')
+       THEN BF_RPGOPR = 'MOVEL';
+       ELSE BF_RPGOPR = 'Z-ADD';
+
+       /*‚24 July 91€*/
+       If (¬ srcctl.sql ) then
+       do;
+          IF   ( (MSGPDT.PARFUN = 'RST')
+               & (¬B_FULLY_RESTRICTED)
+               & (B_RST_PRESENT) )
+          THEN DO;
+             /*‚Reconstruct local name€*/
+             BF_KEYNBR = ACPENT.KEYNBR;
+             BF_KEYNBRX = BF_KEYNBR;
+             BF_FLD1 = 'WQ' || BF_PFX || BF_KEYNBRX;
+          END;
+          ELSE BF_FLD1 = ACPFMT.RPGPFX || FLDENT.INTDDSVNM;
+       end;
+       else
+          bf_fld1= acpfmt.rpgpfx || fldent.intddsvnm;
+
+       call bb_clr_result_fld(msgpdt.ddsvnm,bf_fld1);
+       CALL RC('','',BF_RPGOPR,MSGPDT.DDSVNM,BF_FLD1,'','',FLDENT.FLD);
+    END;
+ END BF_LOAD_KEYS;
+ %page;
+ BG_DESCENDING: PROCEDURE RETURNS(BIT);
+ /*===================================================================*/
+ /*‚Determine if highest key field (if any) is descending            €*/
+ /*===================================================================*/
+    ACPENT_PTR = ACPFMT.KEYPTR;
+    IF   (ACPENT_PTR ¬= NULL) THEN DO;
+       IF   (ACPENT.ASCDSC = 'D')
+       THEN RETURN ('1'B);
+       ELSE RETURN ('0'B);
+    END;
+    ELSE RETURN('0'B);
+ END BG_DESCENDING;
+ %page;
+ BH_CHECK_GROUP: PROCEDURE;
+ /*===================================================================*/
+ /*===================================================================*/
+ DCL BH_RPGOPR CHAR(5), BH_CNDIND CHAR(9);
+    BH_RPGOPR = 'IFNE';
+    BH_CNDIND = 'N90';
+    CALL ZR_GENCMT('Y2F7815','');  /*‚Check high order keys.€*/
+ BH010:
+    DO      ACPENT_PTR = ACPFMT.KEYPTR
+    REPEAT               ACPENT.NXT
+    WHILE  (ACPENT_PTR ¬= NULL);
+       IF   (OBJTBL_DTA(ACPENT.ENTPTR -> ENTENT.@@RELDSG)
+             -> RELENT.RELCDE = '070')
+       THEN ITERATE;  /*‚Dont check qualifiers€*/
+       DO     MSGPAR_PTR = GENPAR.PARPTR
+       REPEAT              MSGPAR.NXT
+       WHILE  (MSGPAR_PTR ¬= NULL);
+          DO     MSGPDT_PTR = MSGPAR.FSTPDT
+          REPEAT              MSGPDT.NXT
+          WHILE  (MSGPDT_PTR ¬= NULL);
+             IF (ACPENT.@@FLD ¬= MSGPDT.@@FLD) THEN ITERATE;
+             /*‚Stop at first non-restrictor€*/
+             IF  (MSGPDT.PARFUN ¬= 'RST') THEN LEAVE BH010;
+             FLDENT_PTR = ZH_FLDPTR(MSGPDT.@@FLD);
+             CALL RC(BH_CNDIND,MSGPDT.DDSVNM,BH_RPGOPR,ACPFMT.RPGPFX
+                     || FLDENT.INTDDSVNM,'','','',FLDENT.FLD);
+             BH_RPGOPR = 'ORNE';
+             BH_CNDIND = ' ';
+          END;
+       END;
+    END;
+    IF   (BH_RPGOPR ¬= 'IFNE')
+    THEN DO;
+       CALL RX('C                     SETON                     '||
+               I_RCDEXS);
+       CALL RX('C                     END');
+    END;
+    CALL ZR_GENCMT('Y2F6054','');  /*‚          €*/
+ END BH_CHECK_GROUP;
+
+ %PAGE;
+ BJ_CHECK_KEY_TYPES: PROCEDURE (BJ_SAMPLE) RETURNS(BIT);
+ /*===================================================================*/
+ /*‚Check if the ACP includes fields of some given (BJ_SAMPLE) types.€*/
+ /*===================================================================*/
+ DCL BJ_SAMPLE CHAR(*), BJ_RESULT_FLAG BIT ALIGNED;
+
+    BJ_RESULT_FLAG = '0'B;
+    DO      ACPENT_PTR = ACPFMT.KEYPTR
+    REPEAT               ACPENT.NXT
+    WHILE  (ACPENT_PTR ¬= NULL);
+       IF (ACPENT.KEYNBR > 99) THEN LEAVE;
+       /*‚Check keys exclusively.€*/
+ /*... Don't check entity type at all, because the link list processed*/
+ /*... here already contains ONLY KEY entries.                        */
+ /*‚   IF (ACPENT.ENTTYP ¬= 'K') THEN ITERATE                        €*/
+       FLDENT_PTR = ZH_FLDPTR(ACPENT.@@FLD);
+       IF(INDEX(BJ_SAMPLE,FLDENT.REFATR)>0) THEN BJ_RESULT_FLAG = '1'B;
+    END;
+    RETURN(BJ_RESULT_FLAG);
+ END BJ_CHECK_KEY_TYPES;
+
+ %PAGE;
+ BK_CHECK_ACP: PROCEDURE RETURNS(BIT);
+ /*===================================================================*/
+ /* Check if all ACP keys have the same collating sequence type ('0').*/
+ /*===================================================================*/
+ DCL BK_ASCDSC CHAR, BK_RESULT_FLAG BIT ALIGNED;
+
+    BK_RESULT_FLAG = '0'B;
+    BK_ASCDSC      = '*';
+    DO      ACPENT_PTR = ACPFMT.KEYPTR
+    REPEAT               ACPENT.NXT
+    WHILE  (ACPENT_PTR ¬= NULL);
+       IF (ACPENT.KEYNBR > 99) THEN LEAVE;
+       /*‚Check keys exclusively.€*/
+ /*... Don't check entity type at all, because the link list processed*/
+ /*... here already contains ONLY KEY entries.                        */
+ /*‚   IF (ACPENT.ENTTYP ¬= 'K') THEN ITERATE                        €*/
+       /*‚Save the highest key value€*/
+       IF (BK_ASCDSC = '*') THEN BK_ASCDSC = ACPENT.ASCDSC;
+       /*‚Compare with the previous key type€*/
+       ELSE IF (BK_ASCDSC = ACPENT.ASCDSC) THEN ITERATE;
+                                           ELSE BK_RESULT_FLAG = '1'B;
+    END;
+    RETURN(BK_RESULT_FLAG);
+ END BK_CHECK_ACP;
+
+ %PAGE;
+ f_seqthru_msgpdt: proc(ent_type,oper,par_usg);
+ /*===================================================================*/
+ dcl (ent_type,oper) char, par_usg char(3) var;
+ dcl flag bit aligned;
+ dcl f_ent_type char;
+
+    if (ent_type = 'R') then f_ent_type = 'K';
+    else                     f_ent_type = ent_type;
+
+    flag = '0'B;
+    /*W: only traverse the first parameter block */
+    /*‚This will contain the record format we are interested in€*/
+    IF (GENPAR.PARPTR ¬= NULL) THEN DO;
+      MSGPAR_PTR = GENPAR.PARPTR;
+      do msgpar_ptr = genpar.parptr
+      repeat          msgpar.nxt
+      while (msgpar_ptr ¬= null);
+          DO     MSGPDT_PTR = MSGPAR.FSTPDT
+          REPEAT              MSGPDT.NXT
+          WHILE  (MSGPDT_PTR ¬= NULL);
+             IF (INDEX(PAR_USG,MSGPDT.PARUSG) = 0) THEN ITERATE;
+             IF (ent_type = 'K') &
+                (MSGPDT.PARFUN ¬= 'RST') &
+                (MSGPDT.PARFUN ¬= 'POS') THEN ITERATE;
+             IF (ent_type = 'R') &
+                (MSGPDT.PARFUN ¬= 'RST') THEN ITERATE;
+
+             /*‚Check if array field qualifies€*/
+             a_fld_qual = '0'b;
+             call seqthru_arrent(a_@@arr,f_ent_type,h_arr_fld_qual);
+             if (¬a_fld_qual) then iterate;
+
+             FLDENT_PTR = ZH_FLDPTR(MSGPDT.@@FLD);
+
+             if (f_ent_type = 'K') then
+               b_resultfld = a_dsidx||char(a_arrent_keyseq);
+             else
+               b_resultfld = a_arrpfx||fldent.intddsvnm;
+
+             select(oper);
+               when('C') do;
+                 call rc('',b_resultfld,a_rpgopr,msgpdt.ddsvnm,
+                         '','','','');
+                 if (a_rpgopr = 'IFNE') then a_rpgopr = 'ORNE';
+               end; /*‚compare€*/
+               when('M') do;
+                 IF (¬FLAG) THEN DO;
+                   CALL ZR_GENCMT('Y2F7684', ARRDTA.ARR);   /*‚Move€*/
+                   FLAG = '1'B;
+                 END;
+
+                 /*‚Suppress MOVE X X€*/
+                 IF (MSGPDT.DDSVNM ¬= b_resultfld) then do;
+                   call bb_clr_result_fld(msgpdt.ddsvnm,b_resultfld);
+                   IF   (FLDENT.INTDTATYP = 'A') THEN
+                     CALL RC('','','MOVEL',MSGPDT.DDSVNM,
+                             b_resultfld,'','',FLDENT.FLD);
+                   ELSE CALL RC('','','Z-ADD',MSGPDT.DDSVNM,
+                             b_resultfld,'','',FLDENT.FLD);
+                 END;
+               end; /*‚move€*/
+             end; /*‚select€*/
+          END; /*‚do while€*/
+          CALL ZR_GENCMT('Y2F6054','');  /*‚          €*/
+       END;
+    end;
+ /*===================================================================*/
+ end f_seqthru_msgpdt;
+
+ h_arr_fld_qual: procedure;
+ /*===================================================================*/
+ if (msgpdt.@@fld = arrent.@@fld) then do;
+     a_arrent_keyseq = arrent.arrkeyseq;
+     a_fld_qual = '1'b;
+     stop_seqthru_arrent = '1'b;
+ end;
+ /*===================================================================*/
+ end h_arr_fld_qual;
+ %PAGE;
+ IA_LOCATE_PARFUN: PROCEDURE (IA_PARFUN) RETURNS(BIT);
+ /*===================================================================*/
+ /*===================================================================*/
+ DCL IA_PARFUN CHAR(3);
+    /*‚If no parameters then no keys list required.€*/
+    IF (GENPAR.PARPTR = NULL) THEN RETURN('0'B);
+    DO      ARRENT_PTR = ARRDTA.ARRKEYPTR
+    REPEAT               ARRENT.NXT
+    WHILE  (ARRENT_PTR ¬= NULL);
+ IA010:DO     MSGPAR_PTR = GENPAR.PARPTR
+       REPEAT              MSGPAR.NXT
+       WHILE (MSGPAR_PTR ¬= NULL);
+          DO     MSGPDT_PTR = MSGPAR.FSTPDT
+          REPEAT              MSGPDT.NXT
+          WHILE  (MSGPDT_PTR ¬= NULL);
+             IF (ARRENT.@@FLD ¬= MSGPDT.@@FLD) THEN ITERATE;
+             /*‚If neither restrictor nor positioner then continue€*/
+             IF (INDEX('RST,POS',MSGPDT.PARFUN) > 0)
+             THEN LEAVE IA010;
+          END;
+       END;
+       /*‚If not found then stop€*/
+       IF (MSGPDT_PTR = NULL) THEN LEAVE;
+       /*‚If positioner and we need restrictors then stop€*/
+       IF ( (MSGPDT.PARFUN = 'POS')
+          & (IA_PARFUN = 'RST') )
+       THEN LEAVE;
+       /*‚If required type then return 'Found'€*/
+       IF  (MSGPDT.PARFUN = IA_PARFUN) THEN RETURN('1'B);
+    END;
+    RETURN('0'B);
+ END IA_LOCATE_PARFUN;
+ %PAGE;
+ IB_FULLY_RESTRICTED: PROCEDURE RETURNS(BIT);
+ /*===================================================================*/
+ /*===================================================================*/
+    /*‚If no parameters then no keys list required.€*/
+    IF (GENPAR.PARPTR = NULL) THEN RETURN('0'B);
+    /*‚Non-unique keys still require read loop€*/
+    IF (ARRDTA.UNIQUE ¬= 'Y') THEN RETURN('0'B);
+
+    DO      ARRENT_PTR = ARRDTA.ARRKEYPTR
+    REPEAT               ARRENT.NXT
+    WHILE  (ARRENT_PTR ¬= NULL);
+  IB010:DO     MSGPAR_PTR = GENPAR.PARPTR
+       REPEAT              MSGPAR.NXT
+       WHILE (MSGPAR_PTR ¬= NULL);
+          DO     MSGPDT_PTR = MSGPAR.FSTPDT
+          REPEAT              MSGPDT.NXT
+          WHILE  (MSGPDT_PTR ¬= NULL);
+             IF (ARRENT.@@FLD ¬= MSGPDT.@@FLD) THEN ITERATE;
+             IF  (MSGPDT.PARFUN = 'RST')
+             THEN LEAVE IB010;
+          END;
+       END;
+       /*‚No parameter defined for key€*/
+       IF  (MSGPDT_PTR = NULL) THEN RETURN('0'B);
+    END;
+    RETURN('1'B); /*‚Fully restricted€*/
+ END IB_FULLY_RESTRICTED;
+ END B_GEN_SUBR;
+
+ %PAGE;
+ X_ERR: PROCEDURE (X_MSGID,X_MSGDTA);
+ /*===================================================================*/
+ /*===================================================================*/
+ DCL X_MSGID CHAR(7), X_MSGDTA CHAR(132);
+    CALL YRPGERRG1I (X_MSGID,X_MSGDTA,GENPAR_PTR,SRCCTL_PTR);
+ END X_ERR;
+ %page;
+ %INCLUDE QPLICPY (YGENDS000I); /*‚RPG Generate DS line              €*/
+ %INCLUDE QPLICPY (YGENDS001I); /*‚RPG - Generate data structure FIEL€*/
+ %INCLUDE QPLICPY (YGENRA000I); /*‚Output RPG dividing line.         €*/
+ %INCLUDE QPLICPY (YGENRB000I); /*‚RPG BEGSR and head of subroutine. €*/
+ %INCLUDE QPLICPY (YGENRC000I); /*‚RPG C spec.                       €*/
+ %INCLUDE QPLICPY (YKJISHFZCI); /*‚Balance Kanji shift out/in in char€*/
+ %INCLUDE QPLICPY (YGENRE000I); /*‚RPG ENDSR.                        €*/
+ %INCLUDE QPLICPY (YGENRL000I); /*‚Locate user exits.                €*/
+ %INCLUDE QPLICPY (YGENRU000I); /*‚Generate code for user exit.      €*/
+ %INCLUDE QPLICPY (YGENRX000I); /*‚RPG: Write EVERY(almost) source li€*/
+ %INCLUDE QPLICPY (YCHRVRYZVI); /*‚Convert CHAR to CHAR VARYING dropp€*/
+ %INCLUDE QPLICPY (YFUNSTKZFI); /*‚Recursive call detector during FUN€*/
+ %INCLUDE QPLICPY (YALCSTGZXI); /*‚GENSTG: Allocate storage          €*/
+ %INCLUDE QPLICPY (YFLDPTRZHI); /*‚Resolve Field pointer.            €*/
+ %INCLUDE QPLICPY (YZRGENCMTI); /*‚RPG: Comment line in C specificati€*/
+ %include qplicpy (ygnmrtvmsg); /*‚YGENHLL - M_RTVMSG                €*/
+ %INCLUDE QPLICPY (yclrfldbbi); /*‚Check field prior to move, may nee€*/
+ %INCLUDE QPLICPY (ychrlenzli); /*‚Determine length of char string.  €*/
+ %include qplicpy (ychrtrmcpi); /*‚Removes leading & trailing spaces €*/
+ %INCLUDE QPLICPY (yqchlenzli); /*‚Get length of quoted string       €*/
+
+    /*‚These lines added for SQL€*/
+
+ %include qplicpy (yqfetchcpi); /*‚YHLL: gen sql fetch cursor        €*/
+ %include qplicpy (yqclosecpi); /*‚YHLL: gen sql close cursor        €*/
+ %include qplicpy (yqchaincpi); /*‚YHLL: gen sql select * into :acpsr€*/
+ %include qplicpy (yqwhrkycpi); /*‚YHLL: Gen SQL key list in WHERE   €*/
+ %include qplicpy (yqdcl05cpi); /*‚YHLL: Gen SQL declare/open cursor €*/
+ %include qplicpy (yqdcl04cpi); /*‚YHLL: Gen SQL declare/open cursor €*/
+ %include qplicpy (yqiots1cpi); /*‚YHLL: gen sql IO result indicators€*/
+ %include qplicpy (yqiots2cpi); /*‚YHLL: gen sql IO result indicators€*/
+    /*‚This line added for DRDA€*/
+ %include qplicpy (YDRDAFTCPI); /*‚YGENHLL RPG DRDA Re-open & re-posi€*/
+
+ %PAGE;
+ ZZ_INITIALIZE: PROCEDURE;
+ /*===================================================================*/
+ /*‚Program initialisation.                                          €*/
+ /*===================================================================*/
+ END ZZ_INITIALIZE;
+ END YRPGRTVG2I;

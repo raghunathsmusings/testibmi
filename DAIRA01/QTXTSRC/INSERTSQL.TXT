@@ -1,0 +1,20 @@
+INSERT INTO rpg_orders.orders
+(cust_email, order_ts, product, price)
+VALUES
+('ntl@us.ibm.com',
+ '2012-04-15 13:00:00',
+ 'Camera',
+ 999.50
+),
+('ntl@us.ibm.com',
+ '2012-04-16 12:00:00',
+ 'lens',
+ 500.25),
+('ntl@us.ibm.com',
+ '2012-04-01 11:00:00',
+ 'Book',
+ 15.00),
+('george@nowhere.com',
+ '2012-04-15 13:05:00',
+ 'Book',
+ 20) ;

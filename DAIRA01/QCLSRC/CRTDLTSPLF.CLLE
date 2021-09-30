@@ -1,0 +1,16 @@
+             PGM        PARM(&UPTOC)
+
+             DCL        VAR(&INT) TYPE(*INT) LEN(4)
+             DCL        VAR(&UPTO) TYPE(*INT) LEN(4)
+             DCL        VAR(&UPTOC) TYPE(*CHAR) LEN(5)
+
+             CHGVAR     VAR(&UPTO) VALUE(%DEC(&UPTOC 5 0))
+
+             DOFOR      VAR(&INT) FROM(1) TO(&UPTO)
+               DSPUSRPRF  USRPRF(CHASH17) OUTPUT(*PRINT)
+               DLTSPLF    FILE(QPUSRPRF) SPLNBR(*LAST)
+             ENDDO
+
+             DSPUSRPRF  USRPRF(CHASH17) OUTPUT(*PRINT)
+
+             ENDPGM

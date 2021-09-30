@@ -1,0 +1,92 @@
+ /*===================================================================*/
+ /*M: 01Aug03 RMH M27520 Add ZZ_INT_MSG() procedure and document      */
+ /*M:                    previous addition of ZZ_MSG() procedure.     */
+ /*M: 15Oct08 HEWRO01 M28010 C22E 323 Add ZM_MSGDTA & ZM_MSGDTA_PTR.  */
+ /*===================================================================*/
+
+ /*‚Global message data variable€*/
+ DCL ZM_MSGDTA       CHAR(132);
+ DCL ZM_MSGDTA_PTR   PTR;
+    ZM_MSGDTA_PTR = ADDR(ZM_MSGDTA);
+    ZM_MSGDTA = '';
+
+ ZM_SNDPGMMSG:PROC(ZM_MSGID,ZM_MSGDTA_PTR,ZM_MSGTYPE,ZM_TOPGMQ,ZM_RELQ);
+ /*===================================================================*/
+ /*‚Send message to specified program message queue.                 €*/
+ /*===================================================================*/
+ DCL ZM_MSGID CHAR(7), ZM_DTAPTR POINTER,
+    ZM_MSGDTA_PTR PTR,  /*‚Pointer to address of message data,or NULL€*/
+    ZM_MSGTYPE CHAR(7), /*‚*INFO,*COMP,*STATUS,*DIAG,*NOTIFY,*ESCAPE.€*/
+    ZM_TOPGMQ CHAR(10), /*‚*-current, or named program queue.€*/
+    ZM_RELQ CHAR(5),    /*‚*SAME,*PRV,*EXT€*/
+    ZM_MSGDTA   CHAR(132) BASED (ZM_MSGDTA_PTR),
+    ZM_NULL_DTA CHAR(132); /*‚Null parameter€*/
+ DCL YSNDMSGR1C ENTRY
+    (CHAR(10),CHAR(5),CHAR(7),CHAR(132),CHAR(7)) OPTIONS(ASSEMBLER);
+    ZM_NULL_DTA = ' ';
+    IF (ZM_MSGDTA_PTR = NULL()) THEN ZM_MSGDTA_PTR = ADDR(ZM_NULL_DTA);
+    ON ERROR GOTO ZM_ERROR_EXIT;
+    IF (IND(99)='0')|(ZM_MSGID = '*CLR') THEN
+     CALL YSNDMSGR1C(ZM_TOPGMQ,ZM_RELQ,ZM_MSGID,(ZM_MSGDTA),ZM_MSGTYPE);
+ ZM_ERROR_EXIT:
+    IND(99)=(ZM_MSGID ¬= '*CLR');
+ /*===================================================================*/
+ END ZM_SNDPGMMSG;
+
+ ZZ_MSG: PROCEDURE(ZZ_MSGID,ZZ_MSGDTA_PTR,ZZ_MSGTYPE);
+ /*===================================================================*/
+ /*‚Simple interface to ZM_SNDPGMMSG, which assumes *STATUS messages €*/
+ /*‚go to *EXT *SAME and all others go to @PGMID, *PRV. Removes need €*/
+ /*‚to explicitly set off IND(99) in in-line code. Easier to use and €*/
+ /*‚allows consistent indenting (since shorter code):                €*/
+ /*‚                                                                 €*/
+ /*‚ CALL ZZ_MSG('Y2I1032',MSGDTA_PTR,'')                            €*/
+ /*‚                                                                 €*/
+ /*‚rather than:                                                     €*/
+ /*‚                                                                 €*/
+ /*‚ IND(99) = '0'                                                   €*/
+ /*‚ CALL ZM_SNDPGMMSG('Y2I1032',MSGDTA_PTR,'*ESCAPE',@PGMID,'*PRV') €*/
+ /*‚                                                                 €*/
+ /*===================================================================*/
+ DCL ZZ_MSGID        CHAR(7); /*‚Message ID€*/
+ DCL ZZ_MSGDTA_PTR   PTR;     /*‚Pointer to message data€*/
+ DCL ZZ_MSGTYPE      CHAR(7); /*‚Message type e.g. *ESCAPE€*/
+
+    IND(99) = '0';
+    IF (ZZ_MSGTYPE = '') THEN ZZ_MSGTYPE = '*ESCAPE';
+    IF (ZZ_MSGTYPE = '*STATUS') THEN
+     CALL ZM_SNDPGMMSG(ZZ_MSGID,ZZ_MSGDTA_PTR,'*STATUS','*EXT','*SAME');
+    ELSE
+     CALL ZM_SNDPGMMSG(ZZ_MSGID,ZZ_MSGDTA_PTR,ZZ_MSGTYPE,@PGMID,'*PRV');
+
+ /*===================================================================*/
+ END ZZ_MSG;
+
+ ZZ_INT_MSG: PROCEDURE(ZZ_MSGID,ZZ_MSGDTA_PTR,ZZ_MSGTYPE);
+ /*===================================================================*/
+ /*‚Simple interface to ZM_SNDPGMMSG for interactive jobs, to ensure €*/
+ /*‚messages got to @PGMID,*SAME. If no message type passed, assume  €*/
+ /*‚message type is *DIAG.                                           €*/
+ /*‚                                                                 €*/
+ /*‚ CALL ZZ_INT_MSG('Y2I1032',MSGDTA_PTR,'')                        €*/
+ /*‚                                                                 €*/
+ /*‚rather than:                                                     €*/
+ /*‚                                                                 €*/
+ /*‚ IND(99) = '0'                                                   €*/
+ /*‚ CALL ZM_SNDPGMMSG('Y2I1032',MSGDTA_PTR,'*DIAG',@PGMID,'*SAME')  €*/
+ /*‚                                                                 €*/
+ /*===================================================================*/
+ DCL ZZ_MSGID        CHAR(7); /*‚Message ID€*/
+ DCL ZZ_MSGDTA_PTR   PTR;     /*‚Pointer to message data€*/
+ DCL ZZ_MSGTYPE      CHAR(7); /*‚Message type e.g. *ESCAPE€*/
+
+    IND(99) = '0';
+    IF (ZZ_MSGTYPE = '') THEN ZZ_MSGTYPE = '*DIAG';
+    IF (ZZ_MSGTYPE = '*STATUS') THEN
+     CALL ZM_SNDPGMMSG(ZZ_MSGID,ZZ_MSGDTA_PTR,'*STATUS','*EXT','*SAME');
+    ELSE
+     CALL ZM_SNDPGMMSG(ZZ_MSGID,ZZ_MSGDTA_PTR,ZZ_MSGTYPE,@PGMID,
+                                                               '*SAME');
+
+ /*===================================================================*/
+ END ZZ_INT_MSG;

@@ -1,0 +1,29 @@
+             PGM        PARM(&LIB)
+
+             DCL        VAR(&LIB)  TYPE(*CHAR) LEN(10)
+             DCL        VAR(&PATH) TYPE(*CHAR) LEN(60)
+
+             DSPFD      FILE(&LIB/*ALL) TYPE(*MBR) OUTPUT(*OUTFILE) +
+                          OUTFILE(QTEMP/DSPFDMBR)
+
+             /* Create starting directory in IFS */
+             CRTDIR     DIR('/DAIRA01IFS')
+             MONMSG     MSGID(CPF0000)
+             CHGVAR     VAR(&PATH) VALUE('/DAIRA01IFS/' *TCAT &LIB)
+             RMVDIR     DIR(&PATH) SUBTREE(*ALL)
+             MONMSG     MSGID(CPF0000)
+
+             CRTDIR     DIR(&PATH)
+             MONMSG     MSGID(CPF0000)
+
+             /* Create an OPNQRYF to select only source pf dtls */
+             OPNQRYF    FILE((QTEMP/DSPFDMBR)) QRYSLT('MBDTAT *EQ +
+                          ''S''')
+             OVRDBF     FILE(DSPFDMBR) SHARE(*YES)
+
+             CALL       PGM(CPYTOIFSP1)
+
+             DLTOVR     FILE(DSPFDMBR)
+             MONMSG     MSGID(CPF9999)
+
+             ENDPGM

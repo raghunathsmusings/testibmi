@@ -1,0 +1,708 @@
+ /*===================================================================*/
+ /*H:   Architect   :     Simon Cockayne (COCSI01)                    */
+ /*H:   Date        :     01May2008.                                  */
+ /*===================================================================*/
+ /*H:-----------------------------------------------------------------*/
+ /*H:   SYNOPSIS:                                                     */
+ /*H:      Procedures for analysing various aspects of an             */
+ /*H:      Action Diagram.                                            */
+ /*H:-----------------------------------------------------------------*/
+ /*===================================================================*/
+ /*M: 28Jul08 COCSI01 M28006 17211899 DSPMDLREF/DSPMDLUSG HANGS       */
+ /*M:         1. Y_E_GET_PRV_SUB - check ELMTYP is SUB.               */
+ /*M:         2. Y_H_GET_PRV_BLK - check ELMTYP is BLK.               */
+ /*M:         3. Y_I_GET_CAS_BLK - check ELMTYP is BLK.               */
+ /*M: 13May11 RONMA02 M28314 C22E 409                                 */
+ /*M:         Excessive I/O(s) occurring due to new Impact Analysis   */
+ /*M:         YCMTCDE feature (when YCMTCDE = *YES or *NO).           */
+ /*M:         These excessive I/O(s) led customers to believe that    */
+ /*M:         the YDSPMDLUSG command was looping.                     */
+ /*M:         New YMSGACT03L, YMSGACT04L, YMSGACT05L LF(s) added      */
+ /*M:         to reduce I/O(s) needed for new YCMTCDE feature.        */
+ /*M:         Avoid Looping  (i.e. PE$STACK error  ONCODE 8085)      */
+ /*==================================================================*/
+
+ Y_A_IS_ACT_INACTIVE: PROCEDURE (Y_A_@@MSG_CALLING,
+                                Y_A_@@ELM_ACT ) RETURNS (BIT);
+ /*===================================================================*/
+ /* This procedure determines whether a function call is inactive     */
+ /* inactive.                                                         */
+ /*===================================================================*/
+ DCL Y_A_@@MSG_CALLING    DEC(7);
+ DCL Y_A_@@ELM_ACT        DEC(7);
+ DCL Y_A_@@ELM_BLK        DEC(7);
+ DCL Y_A_BLK_STATUS       CHAR(1);
+ DCL EOF         BIT ALIGNED;
+
+ CALL Y_C_GET_BLK_FOR_ACT(Y_A_@@MSG_CALLING, Y_A_@@ELM_ACT,
+                         Y_A_@@ELM_BLK, Y_A_BLK_STATUS);
+
+ IF (Y_A_@@ELM_BLK = 0) THEN DO;
+    RETURN('0'b);
+ END;
+
+ IF (Y_A_@@ELM_BLK ¬= 0) THEN DO;
+    IF (Y_A_BLK_STATUS = '*') THEN DO;
+       RETURN('1'b);
+    END;
+ END;
+
+ /* Process the BLK for the ACT element. */
+ RETURN (Y_B_PRC_BLK_PRV(Y_A_@@MSG_CALLING, Y_A_@@ELM_BLK));
+
+ END Y_A_IS_ACT_INACTIVE;
+
+
+ Y_B_PRC_BLK_PRV: PROCEDURE(Y_B_@@MSG_CALLING, Y_B_@@ELM_BLK)
+                  RETURNS(BIT);
+ /*===================================================================*/
+ /* This procedure locates traverses back through all previous blocks */
+ /* (if any exist) and then locates the previous sub-block.           */
+ /*===================================================================*/
+ DCL Y_B_@@MSG_CALLING    DEC(7);
+ DCL Y_B_@@ELM_BLK        DEC(7);
+ DCL Y_B_@@ELM_BLK_PRV    DEC(7);
+
+ Y_B_@@ELM_BLK_PRV = 0;
+
+ /* Traveres to the most previous block (if there are any). */
+ DO UNTIL (Y_B_@@ELM_BLK_PRV = 0);
+    CALL Y_D_GET_PRV_BLK(Y_B_@@MSG_CALLING, Y_B_@@ELM_BLK,
+                        Y_B_@@ELM_BLK_PRV);
+    IF (Y_B_@@ELM_BLK_PRV ¬= 0) THEN DO;
+       Y_B_@@ELM_BLK = Y_B_@@ELM_BLK_PRV;
+    END;
+ END;
+
+ /* Ok...most previous block found (which may be same as initial) */
+ /* so process sub block. */
+ RETURN(Y_F_PRC_BLK_SUB(Y_B_@@MSG_CALLING, Y_B_@@ELM_BLK));
+
+ END Y_B_PRC_BLK_PRV;
+
+
+ Y_C_GET_BLK_FOR_ACT: PROCEDURE (Y_C_@@MSG_CALLING, Y_C_@@ELM_ACT,
+                                Y_C_@@ELM_BLK, Y_C_BLK_STATUS);
+ /*===================================================================*/
+ /* This procedure locates the BLK for the ACT element where          */
+ /* @@MSG = Y_C_@@MSG_CALLING and @@ELM = Y_C_@@ELM_ACT.              */
+ /* The BLK will have an @@SUB1 of Y_C_@@ELM_ACT.                     */
+ /*===================================================================*/
+ DCL Y_C_@@MSG_CALLING    DEC(7);
+ DCL Y_C_@@ELM_ACT        DEC(7);
+ DCL Y_C_@@ELM_BLK        DEC(7);
+ DCL Y_C_BLK_STATUS       CHAR(1);
+ DCL EOF         BIT ALIGNED;
+
+ Y_C_@@ELM_BLK  = 0;
+
+ YMSGACT04L_EOF = '0'b;
+ YMSGACT04L_KEY = '0'b;
+ @MSGACT04_KEY.@@MSG = Y_C_@@MSG_CALLING;
+ @MSGACT04_KEY.@@SUB1 = Y_C_@@ELM_ACT;
+
+ READ FILE(YMSGACT04L) INTO(@MSGACT04) KEY(@MSGACT04_KEY)
+    OPTIONS(RECORD('@TYPSUB1'));
+
+    IF ( ( ¬ YMSGACT04L_EOF) & ( ¬ YMSGACT04L_KEY ) )
+    THEN DO;
+       Y_C_@@ELM_BLK  = @MSGACT04.@@ELM;
+       Y_C_BLK_STATUS = @MSGACT04.STATUS;
+    END;
+
+ END Y_C_GET_BLK_FOR_ACT;
+
+
+ Y_D_GET_PRV_BLK: PROCEDURE(Y_D_@@MSG_CALLING, Y_D_@@ELM_BLK,
+                 Y_D_@@ELM_BLK_PRV);
+ /*===================================================================*/
+ /* This procedure locates the previous block to a block              */
+ /* identified with an @@MSG of Y_D_@@MSG_CALLING and an @@ELM of     */
+ /* Y_D_@@ELM_BLK.                                                    */
+ /* If a prv block exists it will have an @@NXTELM of Y_D_@@ELM_BLK.  */
+ /*===================================================================*/
+ DCL Y_D_@@MSG_CALLING    DEC(7);
+ DCL Y_D_@@ELM_BLK        DEC(7);
+ DCL Y_D_@@ELM_BLK_PRV    DEC(7);
+
+ Y_D_@@ELM_BLK_PRV = 0 ;
+
+ YMSGACT03L_EOF = '0'b;
+ YMSGACT03L_KEY = '0'b;
+ @MSGACT03_KEY.@@MSG = Y_D_@@MSG_CALLING;
+ @MSGACT03_KEY.@@NXTELM = Y_D_@@ELM_BLK;
+
+ READ FILE(YMSGACT03L) INTO(@MSGACT03) KEY(@MSGACT03_KEY)
+    OPTIONS(RECORD('@ELMNXT'));
+
+    IF ( ( ¬ YMSGACT03L_EOF) & ( ¬ YMSGACT03L_KEY ) )
+    THEN DO;
+       Y_D_@@ELM_BLK_PRV = @MSGACT03.@@ELM;
+       Y_D_@@ELM_BLK     = @MSGACT03.@@NXTELM;
+    END;
+
+ END Y_D_GET_PRV_BLK;
+
+ Y_E_GET_PRV_SUB: PROCEDURE(Y_E_@@MSG_CALLING, Y_E_@@ELM_BLK,
+                 Y_E_@@ELM_BLK_PRV_SUB, Y_E_BLK_STATUS);
+ /*===================================================================*/
+ /* This procedure locates the previous sub-block to a block          */
+ /* identified with an @@MSG of Y_E_@@MSG_CALLING and an @@ELM of     */
+ /* Y_E_@@ELM_BLK.                                                    */
+ /* If a prv sub-block exists it will have an @@SUB2 of Y_E_@@ELM_BLK.*/
+ /*===================================================================*/
+
+ DCL Y_E_@@MSG_CALLING     DEC(7);
+ DCL Y_E_@@ELM_ACT         DEC(7);
+ DCL Y_E_@@ELM_BLK         DEC(7);
+ DCL Y_E_@@ELM_BLK_PRV_SUB DEC(7);
+ DCL Y_E_BLK_STATUS        CHAR(1);
+ DCL EOF         BIT ALIGNED;
+
+ Y_E_BLK_STATUS  = 0;
+ Y_E_@@ELM_BLK_PRV_SUB = 0;
+
+ YMSGACT05L_EOF  = '0'b;
+ YMSGACT05L_KEY  = '0'b;
+ @MSGACT05_KEY.@@MSG = Y_E_@@MSG_CALLING;
+ @MSGACT05_KEY.ELMTYP = 'SUB';
+ @MSGACT05_KEY.@@SUB2 = Y_E_@@ELM_BLK;
+
+ READ FILE(YMSGACT05L) INTO(@MSGACT05) KEY(@MSGACT05_KEY)
+    OPTIONS(RECORD('@TYPSUB2'));
+
+    IF ( ( ¬ YMSGACT05L_EOF) & ( ¬ YMSGACT05L_KEY ) )
+    THEN DO;
+       Y_E_@@ELM_BLK_PRV_SUB = @MSGACT05.@@ELM;
+       Y_E_BLK_STATUS = @MSGACT05.STATUS;
+    END;
+
+ END Y_E_GET_PRV_SUB;
+
+
+ Y_F_PRC_BLK_SUB: PROCEDURE(Y_F_@@MSG_CALLING, Y_F_@@ELM_BLK)
+                  RETURNS(BIT);
+ /*===================================================================*/
+ /* Process earliest block.                                           */
+ /* Find the sub-block.                                               */
+ /*===================================================================*/
+ DCL Y_F_@@MSG_CALLING     DEC(7);
+ DCL Y_F_@@ELM_ACT         DEC(7);
+ DCL Y_F_@@ELM_BLK         DEC(7);
+ DCL Y_F_@@ELM_BLK_PRV_SUB DEC(7);
+ DCL Y_F_@@ELM_SUB_PRV_BLK DEC(7);
+ DCL Y_F_BLK_STATUS        CHAR(1);
+ DCL EOF         BIT ALIGNED;
+
+ /* Find previous sub-block. */
+ CALL Y_E_GET_PRV_SUB(Y_F_@@MSG_CALLING, Y_F_@@ELM_BLK,
+                      Y_F_@@ELM_BLK_PRV_SUB, Y_F_BLK_STATUS);
+
+ IF (Y_F_BLK_STATUS = '*') THEN DO;
+    RETURN('1'b);
+ END;
+
+ /* Special cases...*/
+ /* Y_F_@@ELM_BLK_PRV_SUB */
+ SELECT (Y_F_@@ELM_BLK_PRV_SUB);
+   WHEN (1,2,3,5,8,9,10,11,12,13,15,17,20,23,29,
+         30,34,37,
+         41,43,48,
+         52,61,64,72,77,79,87,91,
+         100,101,122,131,132,133,136,140,141,143,
+         153,165,167,
+         170,175,177,182,199,
+         201,205,209,211,222,215,225,228,239,242,268,
+         351,372,384,389,399,
+         410,413,415,418,425,440,446,454,455,457,466,469,484,499,
+         502,
+         1021,1023,1027,1035,1052,1058,1065,1171,1174,1176,1182,1193,
+         1201,1240,1258,1262,
+         1327,1331,1335,1340,1343,1346,1353,1377,1380,1383,
+         1420, 1442, 1449, 1463, 1488,1496)
+
+      RETURN('0'b);
+   OTHERWISE;
+ END;
+
+ /* Y_F_@@ELM_BLK */
+ SELECT (Y_F_@@ELM_BLK);
+   WHEN (13,338,383,353,355,374,391,393,
+         425,427,
+         1129,1131,1143,1145,1149,1157,
+         1387,1389,1391)
+      RETURN('0'b);
+   OTHERWISE;
+ END;
+
+ /* EEF... */
+ /* Y_F_@@ELM_BLK_PRV_SUB: 1*/
+ /* ...EEF */
+
+ /* EIF... */
+ /*    Y_F_@@ELM_BLK_PRV_SUB: 2*/
+ /* ...EIF */
+
+ /* EDTFIL... */
+ /* Y_F_@@ELM_BLK:         1387, 1389, 1391                           */
+ /* Y_F_@@ELM_BLK_PRV_SUB: 15, 37, 1023, 1027, 1171, 1262             */
+ /*                        1420, 1442, 1449, 1463, 1488, 1496         */
+ /* ...EDTFIL */
+
+ /* EDTRCD... */
+ /* Y_F_@@ELM_BLK        : 383,425,427                               */
+ /* Y_F_@@ELM_BLK_PRV_SUB: 10,64,239,242,268,418,446,469,484,499,502 */
+ /* ...EDTRCD */
+
+ /* EDTRCD2... */
+ /*    Y_F_@@ELM_BLK        : 338,353,355                            */
+ /*    Y_F_@@ELM_BLK_PRV_SUB: 11,30,91,100,199,351,372,384,399,410,  */
+ /*                           413                                    */
+ /* ...EDTRCD2 */
+
+ /* EDTRCD3 */
+ /* Y_F_@@ELM_BLK        : 374, 391, 393                             */
+ /* Y_F_@@ELM_BLK_PRV_SUB: 11,30,91,100,199,415,425,440,454,457      */
+ /* ...EDTRCD3 */
+
+ /* RTVOBJ...*/
+ /* Y_F_@@ELM_BLK_PRV_SUB: 41,48,52,61                               */
+ /* ...RTVOBJ*/
+
+ /* DSPFIL...*/
+ /* Y_F_@@ELM_BLK_PRV_SUB: 20,41,72,101,132,140,170,175,182,209,222  */
+ /*                        205,225,228                               */
+ /* ...DSPFIL*/
+
+ /* EDTTRN...*/
+ /* Y_F_@@ELM_BLK_PRV_SUB: 3,5,9,11,13,1174,1176,1182,1193,1201,1240,*/
+ /*                        1258,1331,1335,1353,1377,1380,1383        */
+ /* Y_F_@@ELM_BLK        : 1129,1131,1143,1145,1149,1157             */
+ /* ...EDTTRN*/
+
+ /* DSPTRN...*/
+ /* Y_F_@@ELM_BLK_PRV_SUB: 3,9,11,13,1174,1176,1182,1193,            */
+ /*                        1201,1240,1258,1327,1340,1343,1346        */
+ /* ...DSPTRN*/
+
+ /* PMTRCD...*/
+ /* Y_F_@@ELM_BLK_PRV_SUB: 10,29,41,1021,1035,1052,1058,1065         */
+ /* ...PMTRCD*/
+
+ /* PRTFIL...*/
+ /* Y_F_@@ELM_BLK_PRV_SUB: 12,34,77,79,87,122,131,133,136,141,143    */
+ /*                        153,165,167,170,175,177,199,201,209,211   */
+ /*                        215                                       */
+ /* ...PRTFIL*/
+
+ /* PRTOBJ...*/
+ /* Y_F_@@ELM_BLK_PRV_SUB: 12, 34, 77, 79, 87, 122, 131, 133, 136,   */
+ /*                        141, 143, 165                             */
+ /* ...PRTOBJ*/
+
+ /* DSPRCD...*/
+ /* Y_F_@@ELM_BLK_PRV_SUB: 11,30,100,199,389,415, 425, 440, 455, 466 */
+ /* ...DSPRCD*/
+
+ /* DSPRCD2...*/
+ /* Y_F_@@ELM_BLK_PRV_SUB: 9,11,17,30,100,199,389,415,425,440,455,   */
+ /*                        466                                       */
+ /* ...DSPRCD2*/
+
+ /* DSPRCD3...*/
+ /* Y_F_@@ELM_BLK_PRV_SUB: 11, 30, 100, 199, 389,                     */
+ /*                        415, 425, 440, 455, 466                    */
+ /* ...DSPRCD3*/
+
+ /* CHGOBJ...*/
+ /* Y_F_@@ELM_BLK_PRV_SUB: 8,10,23,43,48                             */
+ /* ...CHGOBJ*/
+
+ /* CRTOBJ...*/
+ /* Y_F_@@ELM_BLK_PRV_SUB: 8,11,43,48                                */
+ /* ...CRTOBJ*/
+
+ /* DLTOBJ...*/
+ /* Y_F_@@ELM_BLK_PRV_SUB: 8,9,11,17,43,48                           */
+ /* ...DLTOBJ*/
+
+ /* SELRCD...*/
+ /* Y_F_@@ELM_BLK_PRV_SUB:  20,41, 72, 101                           */
+ /* ...SELRCD*/
+
+ /* Special cases catered for...continue processing... */
+
+ RETURN(Y_G_PRC_SUB_BLK(Y_F_@@MSG_CALLING, Y_F_@@ELM_BLK_PRV_SUB,
+                      Y_F_@@ELM_SUB_PRV_BLK, Y_F_BLK_STATUS));
+
+ RETURN('0'b);
+ END Y_F_PRC_BLK_SUB;
+
+ Y_G_PRC_SUB_BLK: PROCEDURE( Y_G_@@MSG_CALLING, Y_G_@@ELM_SUB,
+                             Y_G_@@ELM_SUB_PRV_BLK, Y_G_BLK_STATUS)
+                  RETURNS(BIT);
+ /*===================================================================*/
+ /* Find the previous block for the sub-block.                        */
+ /* WARNING: CASE CONSTRUCT CAN HAVE SUB-BLOCK as previous element    */
+ /* to a sub-block, as each case is a sub-block.                      */
+ /* Here you have to traverse up the sub-block tree.                  */
+ /*===================================================================*/
+ DCL Y_G_@@MSG_CALLING     DEC(7);
+ DCL Y_G_@@ELM_SUB         DEC(7);
+ DCL Y_G_@@ELM_SUB_PRV_BLK DEC(7);
+ DCL Y_G_BLK_STATUS        CHAR(1);
+ DCL EOF         BIT ALIGNED;
+
+ CALL Y_H_GET_PRV_BLK(Y_G_@@MSG_CALLING, Y_G_@@ELM_SUB,
+                      Y_G_@@ELM_SUB_PRV_BLK, Y_G_BLK_STATUS);
+
+ /* Y_G_@@ELM_SUB_PRV_BLK is 0 when sub-block has no previous block */
+ /* i.e. sub-block is a condition (not-first) in a case construct. */
+ IF (Y_G_@@ELM_SUB_PRV_BLK = 0) THEN DO;
+    CALL Y_I_GET_CAS_BLK(Y_G_@@MSG_CALLING, Y_G_@@ELM_SUB,
+                         Y_G_@@ELM_SUB_PRV_BLK, Y_G_BLK_STATUS);
+ END;
+
+ IF (Y_G_BLK_STATUS = '*') THEN DO;
+  RETURN('1'b);
+ END;
+
+ IF (A0_@@MSG ¬= Y_G_@@MSG_CALLING)
+ THEN DO;                                  /* Reset values */
+    A0_@@MSG      = Y_G_@@MSG_CALLING;
+    A0_@@ELM_PRV1 = Y_G_@@ELM_SUB_PRV_BLK;
+    A0_@@ELM_PRV2 = 0;
+    A0_@@ELM_PRV3 = 0;
+ END;
+ ELSE DO;
+    IF (A0_@@ELM_PRV1 ¬= Y_G_@@ELM_SUB_PRV_BLK)
+    THEN DO;
+       A0_@@ELM_PRV3 = A0_@@ELM_PRV2;
+       A0_@@ELM_PRV2 = A0_@@ELM_PRV1;
+       A0_@@ELM_PRV1 = Y_G_@@ELM_SUB_PRV_BLK;
+
+       IF (A0_@@ELM_PRV3 = Y_G_@@ELM_SUB_PRV_BLK)
+       THEN DO;                               /* Jump out of here to */
+          RETURN('0'b);                       /* avoid endless loop  */
+       END;
+    END;
+ END;
+
+ /* Recursive call !! */
+ RETURN (Y_B_PRC_BLK_PRV(Y_G_@@MSG_CALLING, Y_G_@@ELM_SUB_PRV_BLK));
+ END Y_G_PRC_SUB_BLK;
+
+ Y_H_GET_PRV_BLK: PROCEDURE(Y_H_@@MSG_CALLING, Y_H_@@ELM_SUB,
+                 Y_H_@@ELM_SUB_PRV_BLK, Y_H_BLK_STATUS);
+ /*===================================================================*/
+ /* This procedure locates the previous block to a sub-block          */
+ /* identified with an @@MSG of Y_E_@@MSG_CALLING and an @@ELM of     */
+ /* Y_E_@@ELM_SUB.                                                    */
+ /* If a prv block exists it will have an @@SUB2 of Y_E_@@ELM_SUB.    */
+ /*===================================================================*/
+
+ DCL Y_H_@@MSG_CALLING     DEC(7);
+ DCL Y_H_@@ELM_SUB         DEC(7);
+ DCL Y_H_@@ELM_SUB_PRV_BLK DEC(7);
+ DCL Y_H_BLK_STATUS        CHAR(1);
+ DCL EOF         BIT ALIGNED;
+
+ Y_H_BLK_STATUS  = 0;
+ Y_H_@@ELM_SUB_PRV_BLK = 0;
+
+ YMSGACT05L_EOF  = '0'b;
+ YMSGACT05L_KEY  = '0'b;
+ @MSGACT05_KEY.@@MSG = Y_H_@@MSG_CALLING;
+ @MSGACT05_KEY.ELMTYP = 'BLK';
+ @MSGACT05_KEY.@@SUB2 = Y_H_@@ELM_SUB;
+
+ READ FILE(YMSGACT05L) INTO(@MSGACT05) KEY(@MSGACT05_KEY)
+    OPTIONS(RECORD('@TYPSUB2'));
+
+    IF ( ( ¬ YMSGACT05L_EOF) & ( ¬ YMSGACT05L_KEY ) )
+    THEN DO;
+       Y_H_@@ELM_SUB_PRV_BLK = @MSGACT05.@@ELM;
+       Y_H_BLK_STATUS = @MSGACT05.STATUS;
+    END;
+
+ END Y_H_GET_PRV_BLK;
+
+
+ Y_I_GET_CAS_BLK: PROCEDURE(Y_I_@@MSG_CALLING, Y_I_@@ELM_SUB,
+                 Y_I_@@ELM_CAS_BLK, Y_I_BLK_STATUS);
+ /*===================================================================*/
+ /* This procedure traverses up the case conditions (sub-blocks)      */
+ /* of a case construct to find the case block.                       */
+ /*===================================================================*/
+ DCL Y_I_@@MSG_CALLING    DEC(7);
+ DCL Y_I_@@ELM_SUB        DEC(7);
+ DCL Y_I_@@ELM_CAS_BLK    DEC(7);
+ DCL Y_I_BLK_STATUS       CHAR(1);
+ DCL Y_I_@@ELM_SUB_PRV    DEC(7);
+ Y_I_@@ELM_SUB_PRV = 0;
+
+ DO UNTIL (Y_I_@@ELM_SUB_PRV = 0);
+    CALL Y_J_GET_PRV_SUB(Y_I_@@MSG_CALLING, Y_I_@@ELM_SUB,
+                         Y_I_@@ELM_SUB_PRV);
+    IF (Y_I_@@ELM_SUB_PRV ¬= 0) THEN DO;
+       Y_I_@@ELM_SUB = Y_I_@@ELM_SUB_PRV;
+    END;
+ END;
+
+ /* Now no more are found, find the CAS block...whose @@SUB2 is equal*/
+ /* to the first sub-blocks @@elm.                                    */
+
+ YMSGACT05L_EOF = '0'b;
+ YMSGACT05L_KEY = '0'b;
+ @MSGACT05_KEY.@@MSG = Y_I_@@MSG_CALLING;
+ @MSGACT05_KEY.ELMTYP = 'BLK';
+ @MSGACT05_KEY.@@SUB2 = Y_I_@@ELM_SUB;
+
+ READ FILE(YMSGACT05L) INTO(@MSGACT05) KEY(@MSGACT05_KEY)
+    OPTIONS(RECORD('@TYPSUB2'));
+
+    IF ( ( ¬ YMSGACT05L_EOF) & ( ¬ YMSGACT05L_KEY ) )
+    THEN DO;
+       Y_I_@@ELM_CAS_BLK = @MSGACT05.@@ELM;
+       Y_I_BLK_STATUS    = @MSGACT05.STATUS;
+    END;
+
+ END Y_I_GET_CAS_BLK;
+
+ Y_J_GET_PRV_SUB: PROCEDURE(Y_J_@@MSG_CALLING, Y_J_@@ELM_SUB,
+                            Y_J_@@ELM_SUB_PRV);
+ /*===================================================================*/
+ /* This procedure traverses back one case condition (sub-block)      */
+ /* of a case construct to find the case block.                       */
+ /*===================================================================*/
+ DCL Y_J_@@MSG_CALLING    DEC(7);
+ DCL Y_J_@@ELM_SUB        DEC(7);
+ DCL Y_J_@@ELM_SUB_PRV    DEC(7);
+
+ Y_J_@@ELM_SUB_PRV = 0;
+
+ YMSGACT03L_EOF = '0'b;
+ YMSGACT03L_KEY = '0'b;
+ @MSGACT03_KEY.@@MSG = Y_J_@@MSG_CALLING;
+ @MSGACT03_KEY.@@NXTELM = Y_J_@@ELM_SUB;
+
+ /* Previous sub-block's @@NXTELM is equal to current sub-blocks @@ELM*/
+
+ READ FILE(YMSGACT03L) INTO(@MSGACT03) KEY(@MSGACT03_KEY)
+    OPTIONS(RECORD('@ELMNXT'));
+
+    IF ( ( ¬ YMSGACT03L_EOF) & ( ¬ YMSGACT03L_KEY ) )
+    THEN DO;
+       Y_J_@@ELM_SUB_PRV = @MSGACT03.@@ELM;
+    END;
+
+ END Y_J_GET_PRV_SUB;
+
+
+ Y_K_IS_PAR_INACTIVE: PROCEDURE(Y_K_@@MSG_CALLING, Y_K_@@ELM_PAR)
+                      RETURNS (BIT);
+ /*===================================================================*/
+ /* This procedure locates the parent ACT BLK for a PAR record.       */
+ /* Then detremines whether that ACT BLK is inactive.                 */
+ /*===================================================================*/
+ DCL Y_K_@@MSG_CALLING DEC(7);
+ DCL Y_K_@@ELM_PAR     DEC(7);
+ DCL Y_K_ELMTYP        CHAR(3);
+ DCL Y_K_@@ELM_PRV_BLK DEC(7);
+ DCL Y_K_@@ELM_ACT_BLK DEC(7);
+
+ Y_K_@@ELM_PRV_BLK = -1;
+ Y_K_ELMTYP = '';
+
+ DO UNTIL (  Y_K_@@ELM_PRV_BLK = 0 );
+    CALL Y_L_GET_PRV_PAR (Y_K_@@MSG_CALLING, Y_K_@@ELM_PAR,
+                     Y_K_@@ELM_PRV_BLK, Y_K_ELMTYP);
+    IF (Y_K_@@ELM_PRV_BLK ¬= 0) THEN DO;
+       Y_K_@@ELM_PAR = Y_K_@@ELM_PRV_BLK;
+    END;
+ END;
+
+ /*Get the ACT block for this PAR*/
+ CALL Y_M_GET_PAR_ACT (Y_K_@@MSG_CALLING, Y_K_@@ELM_PAR,
+                       Y_K_@@ELM_ACT_BLK, Y_K_ELMTYP);
+
+ RETURN (Y_A_IS_ACT_INACTIVE(Y_K_@@MSG_CALLING, Y_K_@@ELM_ACT_BLK));
+
+ END Y_K_IS_PAR_INACTIVE;
+
+
+ Y_L_GET_PRV_PAR: PROCEDURE(Y_L_@@MSG_CALLING, Y_L_@@ELM_PAR,
+                            Y_L_@@ELM_PRV_BLK, Y_L_ELM_TYP);
+ /*===================================================================*/
+ /* This procedure locates the previous BLK for a PAR record.         */
+ /*===================================================================*/
+
+ DCL Y_L_@@MSG_CALLING    DEC(7);
+ DCL Y_L_@@ELM_PAR        DEC(7);
+ DCL Y_L_@@ELM_PRV_BLK    DEC(7);
+ DCL Y_L_ELM_TYP          CHAR(3);
+
+ Y_L_@@ELM_PRV_BLK = 0 ;
+ Y_L_ELM_TYP = '';
+
+ YMSGACT03L_EOF = '0'b;
+ YMSGACT03L_KEY = '0'b;
+ @MSGACT03_KEY.@@MSG = Y_L_@@MSG_CALLING;
+ @MSGACT03_KEY.@@NXTELM = Y_L_@@ELM_PAR;
+
+ READ FILE(YMSGACT03L) INTO(@MSGACT03) KEY(@MSGACT03_KEY)
+    OPTIONS(RECORD('@ELMNXT'));
+
+    IF ( ( ¬ YMSGACT03L_EOF) & ( ¬ YMSGACT03L_KEY ) )
+    THEN DO;
+       Y_L_@@ELM_PRV_BLK = @MSGACT03.@@ELM;
+       Y_L_ELM_TYP       = @MSGACT03.ELMTYP;
+    END;
+
+ END Y_L_GET_PRV_PAR;
+
+ Y_M_GET_PAR_ACT: PROCEDURE (Y_M_@@MSG_CALLING, Y_M_@@ELM_PAR,
+                                Y_M_@@ELM_ACT_BLK, Y_M_ELMTYP);
+ /*===================================================================*/
+ /* This procedure locates the ACT for the PAR element where          */
+ /* @@MSG = Y_M_@@MSG_CALLING and @@ELM = Y_M_@@ELM_PAR.              */
+ /* The ACT BLK will have an @@SUB1 of Y_C_@@ELM_PAR.                 */
+ /*===================================================================*/
+ DCL Y_M_@@MSG_CALLING    DEC(7);
+ DCL Y_M_@@ELM_PAR        DEC(7);
+ DCL Y_M_@@ELM_ACT_BLK    DEC(7);
+ DCL Y_M_ELMTYP           CHAR(3);
+ DCL EOF                  BIT ALIGNED;
+
+ Y_M_@@ELM_ACT_BLK  = 0;
+
+ YMSGACT04L_EOF     = '0'b;
+ YMSGACT04L_KEY     = '0'b;
+ @MSGACT04_KEY.@@MSG = Y_M_@@MSG_CALLING;
+ @MSGACT04_KEY.@@SUB1 = Y_M_@@ELM_PAR;
+
+ READ FILE(YMSGACT04L) INTO(@MSGACT04) KEY(@MSGACT04_KEY)
+    OPTIONS(RECORD('@TYPSUB1'));
+
+    IF ( ( ¬ YMSGACT04L_EOF) & ( ¬ YMSGACT04L_KEY ) )
+    THEN DO;
+       Y_M_@@ELM_ACT_BLK = @MSGACT04.@@ELM;
+       Y_M_ELMTYP        = @MSGACT04.ELMTYP;
+    END;
+
+ END Y_M_GET_PAR_ACT;
+
+ Y_N_IS_CND_INACTIVE: PROCEDURE(Y_N_@@MSG_CALLING, Y_N_@@ELM_CND)
+                      RETURNS (BIT);
+ /*===================================================================*/
+ /* This procedure locates the parent SUB BLK for a CND record.       */
+ /* Then detremines whether that SUB BLK is inactive.                 */
+ /*===================================================================*/
+ DCL Y_N_@@MSG_CALLING DEC(7);
+ DCL Y_N_@@ELM_CND     DEC(7);
+ DCL Y_N_ELMTYP        CHAR(3);
+ DCL Y_N_@@ELM_SUB_BLK DEC(7);
+ DCL Y_N_@@ELM_PRV_BLK DEC(7);
+ DCL Y_N_BLK_STATUS    CHAR(1);
+
+ Y_N_@@ELM_PRV_BLK = -1;
+ Y_N_ELMTYP = '';
+
+ /*Get the SUB block for this CND*/
+ CALL Y_O_GET_CND_SUB (Y_N_@@MSG_CALLING, Y_N_@@ELM_CND,
+                       Y_N_@@ELM_SUB_BLK, Y_N_ELMTYP,
+                       Y_N_BLK_STATUS);
+ IF (Y_N_BLK_STATUS = '*') THEN DO;
+    RETURN('1'b);
+ END;
+
+ RETURN (Y_G_PRC_SUB_BLK(Y_N_@@MSG_CALLING, Y_N_@@ELM_SUB_BLK,
+                         Y_N_@@ELM_PRV_BLK, Y_N_BLK_STATUS));
+ END Y_N_IS_CND_INACTIVE;
+
+ Y_O_GET_CND_SUB: PROCEDURE (Y_O_@@MSG_CALLING, Y_O_@@ELM_CND,
+                                Y_O_@@ELM_SUB_BLK, Y_O_ELMTYP,
+                                Y_O_BLK_STATUS);
+ /*===================================================================*/
+ /* This procedure locates the SUB for the CND element where          */
+ /* @@MSG = Y_M_@@MSG_CALLING and @@ELM = Y_M_@@ELM_CND.              */
+ /* The SUB BLK will have an @@SUB1 of Y_C_@@ELM_CND.                 */
+ /*===================================================================*/
+ DCL Y_O_@@MSG_CALLING    DEC(7);
+ DCL Y_O_@@ELM_CND        DEC(7);
+ DCL Y_O_@@ELM_SUB_BLK    DEC(7);
+ DCL Y_O_ELMTYP           CHAR(3);
+ DCL Y_O_BLK_STATUS    CHAR(1);
+ DCL EOF                  BIT ALIGNED;
+ DCL found_previous       BIT ALIGNED;
+ DCL sub_found            BIT ALIGNED;
+ Y_O_@@ELM_SUB_BLK  = 0;
+
+ YMSGACT04L_EOF     = '0'b;
+ YMSGACT04L_KEY     = '0'b;
+ @MSGACT04_KEY.@@MSG = Y_O_@@MSG_CALLING;
+ @MSGACT04_KEY.@@SUB1 = Y_O_@@ELM_CND;
+
+ READ FILE(YMSGACT04L) INTO(@MSGACT04) KEY(@MSGACT04_KEY)
+    OPTIONS(RECORD('@TYPSUB1'));
+
+    IF ( ( ¬ YMSGACT04L_EOF) & ( ¬ YMSGACT04L_KEY ) )
+    THEN DO;
+       Y_O_@@ELM_SUB_BLK = @MSGACT04.@@ELM;
+       Y_O_ELMTYP        = @MSGACT04.ELMTYP;
+       Y_O_BLK_STATUS    = @MSGACT04.STATUS;
+    END;
+
+ /* If Y_O_@@ELM_SUB_BLK is zero then the condition has no sub block.*/
+ /* Which is valid for a compound condition. */
+
+ /* Find each previous condition in turn, by looking for previous */
+ /* record's @@NXTELM  pointing to condition. */
+ /* When there is no previous condition, subtract one from the element
+ /* number to get the SUB block for the compound condition. */
+
+ YMSGACT03L_EOF     = '0'b;
+ YMSGACT03L_KEY     = '0'b;
+ @MSGACT03_KEY.@@MSG = Y_O_@@MSG_CALLING;
+ @MSGACT03_KEY.@@NXTELM = Y_O_@@ELM_CND;
+
+ sub_found = '0'b;
+ READ FILE(YMSGACT03L) INTO(@MSGACT03) KEY(@MSGACT03_KEY)
+    OPTIONS(RECORD('@ELMNXT'));
+
+    IF ( ( ¬ YMSGACT03L_EOF) & ( ¬ YMSGACT03L_KEY ) )
+    THEN DO;
+       IF (@MSGACT03.ELMTYP ¬= 'SUB') THEN DO;
+          Y_O_@@ELM_CND = @MSGACT03.@@ELM;
+       END;
+       ELSE DO;
+          sub_found = '1'b;
+          Y_O_@@ELM_SUB_BLK = @MSGACT03.@@ELM;
+       END;
+    END;
+
+ Y_O_ELMTYP = '';
+
+ Y_O_@@ELM_SUB_BLK = Y_O_@@ELM_CND;
+
+ DO WHILE (Y_O_ELMTYP ¬= 'SUB');
+    if (¬ sub_found) THEN DO;
+       Y_O_@@ELM_SUB_BLK = Y_O_@@ELM_SUB_BLK - 1;
+    END;
+
+    @MSGACT00_KEY.@@MSG = Y_O_@@MSG_CALLING;
+    @MSGACT00_KEY.@@ELM = Y_O_@@ELM_SUB_BLK;
+
+    /* Find the sub block details */
+    YMSGACT00L_EOF     = '0'b;
+    YMSGACT00L_KEY     = '0'b;
+
+    READ FILE(YMSGACT00L) INTO(@MSGACT00) KEY(@MSGACT00_KEY)
+       OPTIONS(RECORD('@MSGACT'));
+
+    Y_O_ELMTYP        = @MSGACT00.ELMTYP;
+    Y_O_BLK_STATUS    = @MSGACT00.STATUS;
+ END;
+
+
+ END Y_O_GET_CND_SUB;

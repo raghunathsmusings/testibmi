@@ -1,0 +1,120 @@
+ YEXPREFR2I: PROCEDURE ($@@MSG_CALLING, $@@ELM, $ELMTYP ) RETURNS (BIT);
+
+ /*T: Expand Object References.                    R 6.1             */
+ /*Z: CRTPLIPGM GENOPT(*OPTIMIZE)                                    */
+ /*==================================================================*/
+ /*M: 28Jul08 COCSI01 M28006 17211899 DSPMDLREF/DSPMDLUSG HANGS      */
+ /*M:         Recompile for change to YANZACTCPI.                    */
+ /*M: 13May11 RONMA02 M28314 C22E 409                                */
+ /*M:         Excessive I/O(s) occurring due to new Impact Analysis  */
+ /*M:         YCMTCDE feature (when YCMTCDE = *YES or *NO).          */
+ /*M:         These excessive I/O(s) led customers to believe that   */
+ /*M:         the YDSPMDLUSG command was looping.                    */
+ /*M:         New YMSGACT03L, YMSGACT04L, YMSGACT05L LF(s) added     */
+ /*M:         to reduce I/O(s) needed for new YCMTCDE feature.       */
+ /*M:         Avoid Looping  (i.e. PE$STACK error  ONCODE 8085)      */
+ /*M:         Recompile for change to YANZACTCPI.                    */
+ /*==================================================================*/
+ DCL @PGMID  CHAR(10) STATIC INIT('YEXPREFR2I');        /* This pgm. */
+ /*------------------------------------------------------------------*/
+ DCL $@@MSG_CALLING    DEC(7);
+ DCL $@@ELM            DEC(7);
+ DCL $ELMTYP           CHAR(3);
+ DCL A0_@@MSG          DEC(7)  STATIC INIT(0);
+ DCL A0_@@ELM_PRV1     DEC(7)  STATIC INIT(0);
+ DCL A0_@@ELM_PRV2     DEC(7)  STATIC INIT(0);
+ DCL A0_@@ELM_PRV3     DEC(7)  STATIC INIT(0);
+ DCL Y2W0094_DTA_PTR   PTR;
+ /*DCL 1 Y2W0094_DTA BASED(Y2W0094_DTA_PTR),*/
+ DCL 1 Y2W0094_DTA,
+    10 Y2W0094_DTA_$@@MSG_CALLING DEC(7),
+    10 Y2W0094_DTA_$@@ELM         DEC(7),
+    10 Y2W0094_DTA_$ELMTYP        CHAR(3);
+
+ /* M27988...*/
+ %INCLUDE QPLICPY (YANZACTCPI);   /* Analyze Action Diagram */
+ %INCLUDE QPLICPY (INDICATORS);
+ %INCLUDE QPLICPY (YSNDMSGZMI);
+ /* ...M27988*/
+ /*------------------------------------------------------------------*/
+ DCL     YMSGACT00L FILE RECORD INPUT SEQL KEYED INTERNAL
+                                        ENV(INDEXED DESCRIBED);
+ DCL   1 @MSGACT00,                   /* Block data. */
+          %INCLUDE YMSGACT00L(@MSGACT, RECORD);
+ DCL   1 @MSGACT00_KEY,
+          %INCLUDE YMSGACT00L(@MSGACT, KEY);
+
+ DCL YMSGACT00L_EOF BIT ALIGNED;
+ DCL YMSGACT00L_KEY BIT ALIGNED;
+
+ ON ENDFILE (YMSGACT00L) YMSGACT00L_EOF = '1'B;
+ ON KEY     (YMSGACT00L) YMSGACT00L_KEY = '1'B;
+
+ /*------------------------------------------------------------------*/
+ DCL     YMSGACT03L FILE RECORD INPUT SEQL KEYED INTERNAL
+                                        ENV(INDEXED DESCRIBED);
+ DCL   1 @MSGACT03,                   /* Block data. */
+          %INCLUDE YMSGACT03L(@ELMNXT, RECORD);
+ DCL   1 @MSGACT03_KEY,
+          %INCLUDE YMSGACT03L(@ELMNXT, KEY);
+
+ DCL YMSGACT03L_EOF BIT ALIGNED;
+ DCL YMSGACT03L_KEY BIT ALIGNED;
+
+ ON ENDFILE (YMSGACT03L) YMSGACT03L_EOF = '1'B;
+ ON KEY     (YMSGACT03L) YMSGACT03L_KEY = '1'B;
+
+ /*------------------------------------------------------------------*/
+ DCL     YMSGACT04L FILE RECORD INPUT SEQL KEYED INTERNAL
+                                        ENV(INDEXED DESCRIBED);
+ DCL   1 @MSGACT04,                   /* Block data. */
+          %INCLUDE YMSGACT04L(@TYPSUB1,RECORD);
+ DCL   1 @MSGACT04_KEY,
+          %INCLUDE YMSGACT04L(@TYPSUB1, KEY);
+
+ DCL YMSGACT04L_EOF BIT ALIGNED;
+ DCL YMSGACT04L_KEY BIT ALIGNED;
+
+ ON ENDFILE (YMSGACT04L) YMSGACT04L_EOF = '1'B;
+ ON KEY     (YMSGACT04L) YMSGACT04L_KEY = '1'B;
+
+ /*------------------------------------------------------------------*/
+ DCL     YMSGACT05L FILE RECORD INPUT SEQL KEYED INTERNAL
+                                        ENV(INDEXED DESCRIBED);
+ DCL   1 @MSGACT05,                   /* Block data. */
+          %INCLUDE YMSGACT05L(@TYPSUB2,RECORD);
+ DCL   1 @MSGACT05_KEY,
+          %INCLUDE YMSGACT05L(@TYPSUB2, KEY);
+
+ DCL YMSGACT05L_EOF BIT ALIGNED;
+ DCL YMSGACT05L_KEY BIT ALIGNED;
+
+ ON ENDFILE (YMSGACT05L) YMSGACT05L_EOF = '1'B;
+ ON KEY     (YMSGACT05L) YMSGACT05L_KEY = '1'B;
+
+ /*------------------------------------------------------------------*/
+
+ /* MAINLINE */
+ /* DEBUG Message...*/
+ IND(99) = '0';
+ Y2W0094_DTA_$@@MSG_CALLING = $@@MSG_CALLING;
+ Y2W0094_DTA_$@@ELM         = $@@ELM;
+ Y2W0094_DTA_$ELMTYP        = $ELMTYP;
+
+ /*CALL ZM_SNDPGMMSG ('Y2W0094',ADDR(Y2W0094_DTA),         */
+ /*                   '*DIAG',@PGMID,'*PRV');              */
+ /* DEBUG Message...*/
+ IF ($ELMTYP = 'ACT') THEN DO;
+    RETURN (Y_A_IS_ACT_INACTIVE($@@MSG_CALLING, $@@ELM));
+ END;
+ IF ($ELMTYP = 'PAR') THEN DO;
+     RETURN (Y_K_IS_PAR_INACTIVE($@@MSG_CALLING, $@@ELM));
+ END;
+ IF ($ELMTYP = 'CND') THEN DO;
+     RETURN (Y_N_IS_CND_INACTIVE($@@MSG_CALLING, $@@ELM));
+ END;
+
+ /* Should not reach here! */
+ RETURN ('0'b);
+
+ END YEXPREFR2I;
